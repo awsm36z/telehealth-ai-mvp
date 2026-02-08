@@ -49,7 +49,7 @@ router.post('/:id/biometrics', async (req: Request, res: Response) => {
     const biometrics = req.body;
 
     // Validate required fields
-    if (!biometrics) {
+    if (!biometrics || Object.keys(biometrics).length === 0) {
       return res.status(400).json({ message: 'Biometrics data is required' });
     }
 
