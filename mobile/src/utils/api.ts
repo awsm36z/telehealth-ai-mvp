@@ -204,9 +204,9 @@ const api = {
   },
 
   // Biometrics
-  saveBiometrics: async (biometricData: any) => {
+  saveBiometrics: async (patientId: string, biometricData: any) => {
     try {
-      const response = await fetchWithTimeout(`${API_URL}/biometrics`, {
+      const response = await fetchWithTimeout(`${API_URL}/patients/${patientId}/biometrics`, {
         method: 'POST',
         body: JSON.stringify(biometricData),
       });
@@ -227,6 +227,56 @@ const api = {
         data: null,
         error: error.message || 'Failed to save biometrics',
       };
+    }
+  },
+
+  getBiometrics: async (patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/patients/${patientId}/biometrics`, {
+        method: 'GET',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to get biometrics',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get biometrics error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to get biometrics',
+      };
+    }
+  },
+
+  getPatient: async (patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/patients/${patientId}`, {
+        method: 'GET',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to get patient data',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get patient error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to get patient data',
+        };
     }
   },
 };

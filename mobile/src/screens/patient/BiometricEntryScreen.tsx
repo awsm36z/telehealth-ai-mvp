@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Surface, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme, spacing, shadows } from '../../theme';
+import api from '../../utils/api';
 
 export default function BiometricEntryScreen({ navigation }: any) {
   const [biometrics, setBiometrics] = useState({
@@ -14,22 +15,53 @@ export default function BiometricEntryScreen({ navigation }: any) {
     temperatureUnit: 'F',
     weight: '',
     weightUnit: 'lbs',
+    height: '',
+    heightUnit: 'cm',
+    respiratoryRate: '',
+    painLevel: '0',
     bloodOxygen: '',
     bloodSugar: '',
     bloodSugarContext: 'fasting',
   });
 
   const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const updateField = (field: string, value: string) => {
     setBiometrics({ ...biometrics, [field]: value });
   };
 
   const handleSave = async () => {
-    // Validate and save biometrics
-    console.log('Saving biometrics:', biometrics, notes);
-    // API call here
-    navigation.goBack();
+    setLoading(true);
+    try {
+      // TODO: Get actual patient ID from auth context
+      const patientId = '1';
+
+      // Save biometrics to backend
+      const { data, error } = await api.saveBiometrics(patientId, {
+        ...biometrics,
+        notes,
+      });
+
+      if (error) {
+        Alert.alert('Error', error);
+        setLoading(false);
+        return;
+      }
+
+      console.log('✅ Biometrics saved:', data);
+      Alert.alert('Success', 'Biometrics saved successfully!', [
+        {
+          text: 'OK',
+          onPress: () => navigation.goBack(),
+        },
+      ]);
+    } catch (error: any) {
+      console.error('Save error:', error);
+      Alert.alert('Error', 'Failed to save biometrics');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -156,9 +188,86 @@ export default function BiometricEntryScreen({ navigation }: any) {
             />
           </BiometricSection>
 
-          {/* Blood Oxygen */}
+          {/* Height */}
+          <BiometricSection
+            icon="human-male-height"
+            title="Height"
+            color="#795548"
+          >
+            <TextInput
+              label="Height"
+              value={biometrics.height}
+              onChangeText={(v) => updateField('height', v)}
+              mode="outlined"
+              keyboardType="numeric"
+              placeholder="170"
+              style={styles.input}
+            />
+            <SegmentedButtons
+              value={biometrics.heightUnit}
+              onValueChange={(v) => updateField('heightUnit', v)}
+              buttons={[
+                { value: 'cm', label: 'cm' },
+                { value: 'in', label: 'in' },
+              ]}
+              style={styles.unitSelector}
+            />
+          </BiometricSection>
+
+          {/* Respiratory Rate */}
           <BiometricSection
             icon="lungs"
+            title="Respiratory Rate"
+            color="#00BCD4"
+          >
+            <TextInput
+              label="Respiratory Rate"
+              value={biometrics.respiratoryRate}
+              onChangeText={(v) => updateField('respiratoryRate', v)}
+              mode="outlined"
+              keyboardType="numeric"
+              placeholder="16"
+              right={<TextInput.Affix text="breaths/min" />}
+              style={styles.input}
+            />
+            <Text style={styles.unitLabel}>Normal range: 12-20 breaths/min</Text>
+          </BiometricSection>
+
+          {/* Pain Level */}
+          <BiometricSection
+            icon="emoticon-sad"
+            title="Pain Level"
+            color="#F44336"
+          >
+            <View style={styles.painLevelContainer}>
+              <Text style={styles.painLevelValue}>
+                {biometrics.painLevel}/10 - {getPainDescription(biometrics.painLevel)}
+              </Text>
+              <View style={styles.painLevelButtons}>
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((level) => (
+                  <Button
+                    key={level}
+                    mode={biometrics.painLevel === level.toString() ? 'contained' : 'outlined'}
+                    onPress={() => updateField('painLevel', level.toString())}
+                    style={[
+                      styles.painButton,
+                      biometrics.painLevel === level.toString() && {
+                        backgroundColor: getPainColor(level),
+                      },
+                    ]}
+                    labelStyle={styles.painButtonLabel}
+                    compact
+                  >
+                    {level}
+                  </Button>
+                ))}
+              </View>
+            </View>
+          </BiometricSection>
+
+          {/* Blood Oxygen */}
+          <BiometricSection
+            icon="water-percent"
             title="Blood Oxygen (SpO2)"
             color="#2196F3"
           >
@@ -223,8 +332,10 @@ export default function BiometricEntryScreen({ navigation }: any) {
             contentStyle={styles.buttonContent}
             labelStyle={styles.buttonLabel}
             icon="check"
+            loading={loading}
+            disabled={loading}
           >
-            Save Biometrics
+            {loading ? 'Saving...' : 'Save Biometrics'}
           </Button>
 
           <View style={{ height: spacing.xl }} />
@@ -232,6 +343,23 @@ export default function BiometricEntryScreen({ navigation }: any) {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function getPainDescription(level: string): string {
+  const painLevel = parseInt(level) || 0;
+  if (painLevel === 0) return 'No pain';
+  if (painLevel <= 3) return 'Mild';
+  if (painLevel <= 6) return 'Moderate';
+  if (painLevel <= 9) return 'Severe';
+  return 'Worst possible';
+}
+
+function getPainColor(level: number): string {
+  if (level === 0) return '#4CAF50';
+  if (level <= 3) return '#8BC34A';
+  if (level <= 6) return '#FF9800';
+  if (level <= 9) return '#FF5722';
+  return '#D32F2F';
 }
 
 function BiometricSection({ icon, title, color, children }: any) {
@@ -346,6 +474,30 @@ const styles = StyleSheet.create({
   },
   buttonLabel: {
     fontSize: 16,
+    fontWeight: '600',
+  },
+  painLevelContainer: {
+    gap: spacing.md,
+  },
+  painLevelValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    textAlign: 'center',
+    paddingVertical: spacing.sm,
+  },
+  painLevelButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    justifyContent: 'center',
+  },
+  painButton: {
+    minWidth: 44,
+    borderRadius: theme.roundness,
+  },
+  painButtonLabel: {
+    fontSize: 14,
     fontWeight: '600',
   },
 });
