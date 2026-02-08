@@ -45,7 +45,10 @@ export default function InsightsScreen({ route, navigation }: any) {
   const data = insights || mockInsights;
 
   const handleConsultation = () => {
-    navigation.navigate('VideoCall');
+    navigation.navigate('WaitingRoom', {
+      triageData: route.params?.triageData,
+      insights: data,
+    });
   };
 
   return (

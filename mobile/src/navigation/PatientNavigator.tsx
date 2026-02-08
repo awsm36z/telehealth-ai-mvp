@@ -9,6 +9,8 @@ import PatientHomeScreen from '../screens/patient/PatientHomeScreen';
 import BiometricEntryScreen from '../screens/patient/BiometricEntryScreen';
 import TriageChatScreen from '../screens/patient/TriageChatScreen';
 import InsightsScreen from '../screens/patient/InsightsScreen';
+import WaitingRoomScreen from '../screens/patient/WaitingRoomScreen';
+import VideoCallScreen from '../screens/patient/VideoCallScreen';
 import HistoryScreen from '../screens/patient/HistoryScreen';
 import ProfileScreen from '../screens/patient/ProfileScreen';
 
@@ -23,6 +25,8 @@ function HomeStackNavigator() {
       <Stack.Screen name="BiometricEntry" component={BiometricEntryScreen} />
       <Stack.Screen name="TriageFlow" component={TriageChatScreen} />
       <Stack.Screen name="InsightsScreen" component={InsightsScreen} />
+      <Stack.Screen name="WaitingRoom" component={WaitingRoomScreen} />
+      <Stack.Screen name="VideoCall" component={VideoCallScreen} />
     </Stack.Navigator>
   );
 }

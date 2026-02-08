@@ -1,13 +1,56 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Text, Card, Avatar, Chip, FAB, Surface, Searchbar } from 'react-native-paper';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { Text, Card, Avatar, Chip, FAB, Surface, Searchbar, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { theme, spacing, shadows } from '../../theme';
+import api from '../../utils/api';
 
 export default function DoctorDashboardScreen({ navigation }: any) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCalls, setActiveCalls] = useState<any[]>([]);
+
+  // Poll for active calls (patients waiting for doctor)
+  useFocusEffect(
+    useCallback(() => {
+      fetchActiveCalls();
+      const interval = setInterval(fetchActiveCalls, 5000);
+      return () => clearInterval(interval);
+    }, [])
+  );
+
+  const fetchActiveCalls = async () => {
+    try {
+      const response = await api.getActiveCalls();
+      if (response.data) {
+        setActiveCalls(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch active calls:', error);
+    }
+  };
+
+  const startConsultation = (patient: any) => {
+    // Find active call for this patient
+    const call = activeCalls.find(c => c.patientId === patient.id && c.status === 'waiting');
+
+    if (call) {
+      navigation.navigate('DoctorVideoCall', {
+        roomName: call.roomName,
+        patientId: patient.id,
+        patientName: patient.name,
+        insights: null, // TODO: Fetch from backend
+      });
+    } else {
+      Alert.alert(
+        'No Active Call',
+        'This patient does not have an active video call waiting. They need to complete triage first.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
 
   // Mock patient queue data
   const patients = [
@@ -85,7 +128,13 @@ export default function DoctorDashboardScreen({ navigation }: any) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Patient Queue</Text>
           {patients.map((patient) => (
-            <PatientCard key={patient.id} patient={patient} navigation={navigation} />
+            <PatientCard
+              key={patient.id}
+              patient={patient}
+              navigation={navigation}
+              hasActiveCall={activeCalls.some(c => c.patientId === patient.id && c.status === 'waiting')}
+              onStartCall={() => startConsultation(patient)}
+            />
           ))}
         </View>
 
@@ -107,7 +156,7 @@ function StatCard({ icon, value, label, color }: any) {
   );
 }
 
-function PatientCard({ patient, navigation }: any) {
+function PatientCard({ patient, navigation, hasActiveCall, onStartCall }: any) {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'high':
@@ -130,7 +179,7 @@ function PatientCard({ patient, navigation }: any) {
         <Card.Content>
           <View style={styles.patientHeader}>
             <View style={styles.patientInfo}>
-              <Avatar.Text size={48} label={patient.name.split(' ').map(n => n[0]).join('')} />
+              <Avatar.Text size={48} label={patient.name.split(' ').map((n: string) => n[0]).join('')} />
               <View style={styles.patientDetails}>
                 <View style={styles.patientNameRow}>
                   <Text style={styles.patientName}>{patient.name}</Text>
@@ -174,6 +223,19 @@ function PatientCard({ patient, navigation }: any) {
               AI Insights Ready
             </Chip>
           </View>
+
+          {/* Start Call Button */}
+          {hasActiveCall && (
+            <Button
+              mode="contained"
+              icon="video"
+              onPress={onStartCall}
+              style={styles.startCallButton}
+              labelStyle={styles.startCallLabel}
+            >
+              Start Video Consultation
+            </Button>
+          )}
         </Card.Content>
       </Card>
     </TouchableOpacity>
@@ -343,5 +405,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: theme.colors.secondary,
+  },
+  startCallButton: {
+    marginTop: spacing.md,
+    backgroundColor: '#4CAF50',
+    borderRadius: theme.roundness,
+  },
+  startCallLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

@@ -1,13 +1,26 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createStackNavigator } from '@react-navigation/stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '../theme';
 
 // Doctor Screens
 import DoctorDashboardScreen from '../screens/doctor/DoctorDashboardScreen';
 import DoctorProfileScreen from '../screens/doctor/DoctorProfileScreen';
+import DoctorVideoCallScreen from '../screens/doctor/DoctorVideoCallScreen';
 
 const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
+
+// Dashboard Stack (includes video call)
+function DashboardStackNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} />
+      <Stack.Screen name="DoctorVideoCall" component={DoctorVideoCallScreen} />
+    </Stack.Navigator>
+  );
+}
 
 export default function DoctorNavigator({ onLogout }: { onLogout: () => void }) {
   return (
@@ -32,7 +45,7 @@ export default function DoctorNavigator({ onLogout }: { onLogout: () => void }) 
     >
       <Tab.Screen
         name="Dashboard"
-        component={DoctorDashboardScreen}
+        component={DashboardStackNavigator}
         options={{
           tabBarLabel: 'Patients',
           tabBarIcon: ({ color, size }) => (

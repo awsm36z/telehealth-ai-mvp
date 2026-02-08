@@ -279,6 +279,110 @@ const api = {
         };
     }
   },
+
+  // Video Calls
+  createVideoRoom: async (patientId: string, sessionId?: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/video/create-room`, {
+        method: 'POST',
+        body: JSON.stringify({ patientId, sessionId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to create video room',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Create video room error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to create video room',
+      };
+    }
+  },
+
+  joinVideoRoom: async (roomName: string, userId: string, userName: string, userType: 'patient' | 'doctor') => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/video/join-room`, {
+        method: 'POST',
+        body: JSON.stringify({ roomName, userId, userName, userType }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to join video room',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Join video room error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to join video room',
+      };
+    }
+  },
+
+  endVideoCall: async (roomName: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/video/end-call`, {
+        method: 'POST',
+        body: JSON.stringify({ roomName }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to end call',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('End call error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to end call',
+      };
+    }
+  },
+
+  getActiveCalls: async () => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/video/active-calls`, {
+        method: 'GET',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to get active calls',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get active calls error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to get active calls',
+      };
+    }
+  },
 };
 
 export default api;

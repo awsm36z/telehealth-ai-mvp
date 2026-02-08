@@ -12,6 +12,7 @@ import authRoutes from './routes/auth';
 import triageRoutes from './routes/triage';
 import insightsRoutes from './routes/insights';
 import patientsRoutes from './routes/patients';
+import videoRoutes from './routes/video';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
@@ -28,6 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/triage', triageRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/patients', patientsRoutes);
+app.use('/api/video', videoRoutes);
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {
