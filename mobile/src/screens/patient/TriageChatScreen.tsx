@@ -22,23 +22,66 @@ interface Message {
 }
 
 export default function TriageChatScreen({ navigation }: any) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'ai',
-      content: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [progress, setProgress] = useState(0.1);
   const [questionCount, setQuestionCount] = useState(1);
   const scrollViewRef = useRef<ScrollView>(null);
 
+  // Fetch initial greeting with biometric analysis on mount
+  useEffect(() => {
+    fetchInitialGreeting();
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const fetchInitialGreeting = async () => {
+    try {
+      setIsLoading(true);
+
+      // Send initial message to trigger biometric analysis
+      // TODO: Replace '1' with actual authenticated patient ID from auth context
+      const response = await api.triageChat({
+        messages: [{ role: 'user', content: '__INITIAL_GREETING__' }],
+        patientId: '1', // Demo patient ID
+      });
+
+      if (response.data && !response.error) {
+        const aiMessage: Message = {
+          id: '1',
+          role: 'ai',
+          content: response.data.message,
+          timestamp: new Date(),
+        };
+        setMessages([aiMessage]);
+      } else {
+        // Fallback to default greeting if API fails
+        const fallbackMessage: Message = {
+          id: '1',
+          role: 'ai',
+          content: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
+          timestamp: new Date(),
+        };
+        setMessages([fallbackMessage]);
+      }
+    } catch (error) {
+      console.error('Error fetching initial greeting:', error);
+      // Fallback to default greeting
+      const fallbackMessage: Message = {
+        id: '1',
+        role: 'ai',
+        content: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
+        timestamp: new Date(),
+      };
+      setMessages([fallbackMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -63,8 +106,10 @@ export default function TriageChatScreen({ navigation }: any) {
 
     try {
       // Call backend API for next triage question
+      // TODO: Replace '1' with actual authenticated patient ID from auth context
       const response = await api.triageChat({
         messages: [...messages, userMessage],
+        patientId: '1', // Demo patient ID
       });
 
       if (response.error) {
@@ -149,9 +194,16 @@ export default function TriageChatScreen({ navigation }: any) {
           contentContainerStyle={styles.messagesContainer}
           showsVerticalScrollIndicator={false}
         >
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
-          ))}
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={styles.loadingText}>Analyzing your health data...</Text>
+            </View>
+          ) : (
+            messages.map((message) => (
+              <MessageBubble key={message.id} message={message} />
+            ))
+          )}
 
           {isTyping && (
             <View style={[styles.messageBubble, styles.aiMessage]}>
@@ -256,6 +308,17 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     padding: spacing.lg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: 14,
+    color: theme.colors.onSurfaceVariant,
   },
   messageBubble: {
     marginBottom: spacing.md,

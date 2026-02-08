@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import OpenAI from 'openai';
+import { patientBiometrics, triageSessions } from '../storage';
 // import Anthropic from '@anthropic-ai/sdk'; // Alternative LLM
 
 const router = express.Router();
@@ -12,8 +13,56 @@ const openai = new OpenAI({
   apiKey: apiKey,
 });
 
-// In-memory storage for triage sessions (replace with database)
-const triageSessions: any = {};
+/**
+ * Format biometric data for AI analysis
+ */
+function formatBiometrics(biometrics: any): string {
+  const lines: string[] = [];
+
+  // Vital Signs
+  if (biometrics.bloodPressureSystolic && biometrics.bloodPressureDiastolic) {
+    lines.push(`- Blood Pressure: ${biometrics.bloodPressureSystolic}/${biometrics.bloodPressureDiastolic} mmHg`);
+  }
+  if (biometrics.heartRate) {
+    lines.push(`- Heart Rate: ${biometrics.heartRate} bpm`);
+  }
+  if (biometrics.temperature) {
+    const unit = biometrics.temperatureUnit === 'C' ? '°C' : '°F';
+    lines.push(`- Temperature: ${biometrics.temperature}${unit}`);
+  }
+  if (biometrics.respiratoryRate) {
+    lines.push(`- Respiratory Rate: ${biometrics.respiratoryRate} breaths/min`);
+  }
+  if (biometrics.bloodOxygen) {
+    lines.push(`- Blood Oxygen (SpO2): ${biometrics.bloodOxygen}%`);
+  }
+
+  // Physical Measurements
+  if (biometrics.weight) {
+    const unit = biometrics.weightUnit || 'lbs';
+    lines.push(`- Weight: ${biometrics.weight} ${unit}`);
+  }
+  if (biometrics.height) {
+    const unit = biometrics.heightUnit || 'cm';
+    lines.push(`- Height: ${biometrics.height} ${unit}`);
+  }
+
+  // Additional Metrics
+  if (biometrics.bloodSugar) {
+    const context = biometrics.bloodSugarContext || 'random';
+    lines.push(`- Blood Sugar: ${biometrics.bloodSugar} mg/dL (${context})`);
+  }
+  if (biometrics.painLevel) {
+    lines.push(`- Pain Level: ${biometrics.painLevel}/10`);
+  }
+
+  // Notes
+  if (biometrics.notes) {
+    lines.push(`- Patient Notes: "${biometrics.notes}"`);
+  }
+
+  return lines.join('\n');
+}
 
 /**
  * POST /api/triage/chat
@@ -21,10 +70,76 @@ const triageSessions: any = {};
  */
 router.post('/chat', async (req: Request, res: Response) => {
   try {
-    const { messages, sessionId } = req.body;
+    const { messages, sessionId, patientId } = req.body;
 
     if (!messages || messages.length === 0) {
       return res.status(400).json({ message: 'Messages are required' });
+    }
+
+    // Check if this is an initial greeting request
+    const isInitialGreeting = messages.length === 1 && messages[0].content === '__INITIAL_GREETING__';
+
+    // Check if this is the first real user message (start of conversation)
+    const isFirstMessage = messages.length === 1 && messages[0].role === 'user' && !isInitialGreeting;
+
+    // Handle initial greeting with biometric analysis
+    if (isInitialGreeting && patientId) {
+      const biometrics = patientBiometrics[patientId];
+
+      if (biometrics && Object.keys(biometrics).length > 0) {
+        // Format biometrics for AI analysis
+        const biometricData = formatBiometrics(biometrics);
+
+        const greetingPrompt = `You are a medical triage assistant. A patient has just entered biometric data before starting their consultation. Analyze their vital signs and provide a professional greeting.
+
+PATIENT BIOMETRICS:
+${biometricData}
+
+Generate a response that:
+1. Greets the patient warmly
+2. Briefly acknowledges their biometric readings (1-2 sentences)
+3. Notes any concerning values if present (elevated temperature, abnormal heart rate, high pain level, etc.)
+4. Then asks "What brings you here today?"
+
+Keep it concise, empathetic, and professional. Do not diagnose or provide medical advice.`;
+
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4',
+          messages: [{ role: 'user', content: greetingPrompt }],
+          temperature: 0.7,
+          max_tokens: 300,
+        });
+
+        const greeting = completion.choices[0].message.content || "Hello! What brings you here today?";
+
+        return res.json({
+          message: greeting,
+          complete: false,
+          sessionId: Date.now().toString(),
+        });
+      } else {
+        // No biometrics available, return standard greeting
+        return res.json({
+          message: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
+          complete: false,
+          sessionId: Date.now().toString(),
+        });
+      }
+    }
+
+    // Fetch patient biometrics if available and this is the first message
+    let biometricAnalysis = '';
+    if (isFirstMessage && patientId) {
+      const biometrics = patientBiometrics[patientId];
+
+      if (biometrics && Object.keys(biometrics).length > 0) {
+        // Format biometrics for AI analysis
+        const biometricData = formatBiometrics(biometrics);
+        biometricAnalysis = `\n\nPATIENT BIOMETRICS (Recently Recorded):
+${biometricData}
+
+IMPORTANT: Before asking what brings them here today, first analyze and evaluate these biometric readings as a medical professional would. Provide a brief clinical assessment of the vital signs (1-2 sentences), noting any abnormal values or concerns. Then, proceed to ask what brings them here today.`;
+      }
     }
 
     // System prompt for medical triage
@@ -57,6 +172,7 @@ EMERGENCY RED FLAGS:
 - Severe bleeding
 - Sudden severe headache
 - Suicidal thoughts
+${biometricAnalysis}
 
 Previous conversation:
 ${JSON.stringify(messages.slice(-5))} // Last 5 messages for context

@@ -1,17 +1,7 @@
 import express, { Request, Response } from 'express';
+import { patientBiometrics, patientProfiles } from '../storage';
 
 const router = express.Router();
-
-// In-memory storage for patient data (replace with database)
-const patientBiometrics: any = {};
-const patientProfiles: any = {
-  '1': {
-    id: '1',
-    name: 'Sarah Johnson',
-    age: 32,
-    email: 'l7aja@gmail.com',
-  },
-};
 
 /**
  * GET /api/patients/queue

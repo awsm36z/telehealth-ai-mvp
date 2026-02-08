@@ -42,6 +42,21 @@ Tests AI-powered triage conversation and insights generation.
 
 **Test Count:** 6 tests (4 skipped without API key)
 
+#### 2b. **Triage Biometric Analysis Tests** (`src/routes/__tests__/triage-biometrics.test.ts`)
+Tests AI-powered biometric analysis in triage initial greeting.
+
+**Coverage:**
+- ✅ Initial Greeting
+  - Standard greeting without biometrics
+  - Biometric analysis with concerning values (requires API key)
+  - Biometric analysis with normal values (requires API key)
+- ✅ Biometric Context
+  - Conversation continuation after greeting (requires API key)
+- ✅ Data Isolation
+  - Patient biometric data isolation (requires API key)
+
+**Test Count:** 5 tests (4 skipped without API key)
+
 #### 3. **Auth API Tests** (`src/routes/__tests__/auth.test.ts`)
 Tests authentication and authorization.
 
@@ -133,14 +148,15 @@ Tests that require OpenAI API will be skipped if the key is not provided, allowi
 
 ## Test Statistics
 
-**Total Tests:** 46
-**Unit Tests:** 33
+**Total Tests:** 51
+**Unit Tests:** 38
 **Integration Tests:** 13
 **Performance Tests:** 2
 
 **Coverage Areas:**
 - ✅ Biometric data management
 - ✅ AI triage conversations
+- ✅ AI biometric analysis in triage
 - ✅ Authentication & authorization
 - ✅ Insights generation
 - ✅ Patient data retrieval
