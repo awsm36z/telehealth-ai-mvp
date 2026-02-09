@@ -127,17 +127,18 @@ export default function TriageChatScreen({ navigation }: any) {
       setQuestionCount((prev) => prev + 1);
       setProgress(Math.min(questionCount / 10, 1)); // Assume 10 questions max
 
+      // Always show the AI message
+      setMessages((prev) => [...prev, aiMessage]);
+
       // Check if triage is complete
       if (response.data.complete) {
-        // Navigate to insights screen
+        // Show the final message, then navigate to insights after a delay
         setTimeout(() => {
           navigation.navigate('InsightsScreen', {
             triageData: response.data.triageData,
             insights: response.data.insights,
           });
-        }, 1000);
-      } else {
-        setMessages((prev) => [...prev, aiMessage]);
+        }, 2500);
       }
     } catch (error) {
       console.error('Error sending message:', error);

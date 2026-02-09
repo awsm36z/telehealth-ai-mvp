@@ -177,7 +177,7 @@ ${biometricAnalysis}
 Previous conversation:
 ${JSON.stringify(messages.slice(-5))} // Last 5 messages for context
 
-Generate the next triage question or conclude if sufficient information is gathered. If you've gathered enough information (8-12 questions answered), respond with: "TRIAGE_COMPLETE"`;
+Generate the next triage question or conclude if sufficient information is gathered. When you've gathered enough information (8-12 questions answered), you MUST end your final message with the exact tag [TRIAGE_COMPLETE] on its own line. Before that tag, thank the patient and let them know you'll connect them with a doctor.`;
 
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
@@ -194,12 +194,26 @@ Generate the next triage question or conclude if sufficient information is gathe
     });
 
     const aiResponse = completion.choices[0].message.content || '';
-    const isComplete = aiResponse.includes('TRIAGE_COMPLETE');
+
+    // Detect triage completion - check for various patterns the AI might use
+    const responseUpper = aiResponse.toUpperCase();
+    const isComplete =
+      responseUpper.includes('TRIAGE_COMPLETE') ||
+      responseUpper.includes('END_TRIAGE') ||
+      responseUpper.includes('[TRIAGE_COMPLETE]') ||
+      responseUpper.includes('TRIAGE COMPLETE');
+
+    // Clean the AI response - remove the completion tag from visible text
+    const cleanResponse = aiResponse
+      .replace(/\[?TRIAGE_COMPLETE\]?/gi, '')
+      .replace(/\[?END_TRIAGE\]?/gi, '')
+      .replace(/\[?TRIAGE COMPLETE\]?/gi, '')
+      .trim();
 
     // Store session
     const sessionKey = sessionId || Date.now().toString();
     triageSessions[sessionKey] = {
-      messages: [...messages, { role: 'ai', content: aiResponse }],
+      messages: [...messages, { role: 'ai', content: cleanResponse }],
       complete: isComplete,
       timestamp: new Date().toISOString(),
     };
@@ -208,8 +222,11 @@ Generate the next triage question or conclude if sufficient information is gathe
       // Generate insights
       const insights = await generateInsights(messages);
 
+      const completeMessage = cleanResponse ||
+        "Thank you for answering these questions. I'm now connecting you with a doctor who will review your information.";
+
       return res.json({
-        message: "Thank you for answering these questions. I'm now generating health insights for your doctor.",
+        message: completeMessage,
         complete: true,
         triageData: triageSessions[sessionKey],
         insights,
@@ -217,7 +234,7 @@ Generate the next triage question or conclude if sufficient information is gathe
     }
 
     res.json({
-      message: aiResponse,
+      message: cleanResponse,
       complete: false,
       sessionId: sessionKey,
     });
