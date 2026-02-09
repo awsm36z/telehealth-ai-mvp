@@ -280,6 +280,86 @@ const api = {
     }
   },
 
+  // Triage Data (for doctor view)
+  getTriageData: async (patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/insights/${patientId}/triage`, {
+        method: 'GET',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to get triage data',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get triage data error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to get triage data',
+      };
+    }
+  },
+
+  // AI Assist (Doctor)
+  askAI: async (question: string, patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/ai-assist/ask`, {
+        method: 'POST',
+        body: JSON.stringify({ question, patientId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to get AI response',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('AI assist error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to get AI response',
+      };
+    }
+  },
+
+  // Consultation Notes
+  saveConsultationNotes: async (patientId: string, notes: string, roomName?: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/consultations/${patientId}/notes`, {
+        method: 'PUT',
+        body: JSON.stringify({ notes, roomName }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to save notes',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Save notes error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to save notes',
+      };
+    }
+  },
+
   // Video Calls
   createVideoRoom: async (patientId: string, sessionId?: string) => {
     try {

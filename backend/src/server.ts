@@ -13,6 +13,8 @@ import triageRoutes from './routes/triage';
 import insightsRoutes from './routes/insights';
 import patientsRoutes from './routes/patients';
 import videoRoutes from './routes/video';
+import consultationsRoutes from './routes/consultations';
+import aiAssistRoutes from './routes/ai-assist';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
@@ -30,6 +32,8 @@ app.use('/api/triage', triageRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/patients', patientsRoutes);
 app.use('/api/video', videoRoutes);
+app.use('/api/consultations', consultationsRoutes);
+app.use('/api/ai-assist', aiAssistRoutes);
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import OpenAI from 'openai';
-import { patientBiometrics, triageSessions } from '../storage';
+import { patientBiometrics, triageSessions, patientInsights, patientTriageData } from '../storage';
 // import Anthropic from '@anthropic-ai/sdk'; // Alternative LLM
 
 const router = express.Router();
@@ -221,6 +221,19 @@ Generate the next triage question or conclude if sufficient information is gathe
     if (isComplete) {
       // Generate insights
       const insights = await generateInsights(messages);
+
+      // Store insights and triage data for doctor access
+      if (patientId) {
+        patientInsights[patientId] = {
+          ...insights,
+          generatedAt: new Date().toISOString(),
+        };
+        patientTriageData[patientId] = {
+          messages: triageSessions[sessionKey].messages,
+          completedAt: new Date().toISOString(),
+        };
+        console.log(`✅ Stored insights for patient ${patientId}`);
+      }
 
       const completeMessage = cleanResponse ||
         "Thank you for answering these questions. I'm now connecting you with a doctor who will review your information.";

@@ -13,3 +13,6 @@ export const patientProfiles: Record<string, any> = {
   },
 };
 export const triageSessions: Record<string, any> = {};
+export const patientInsights: Record<string, any> = {};
+export const patientTriageData: Record<string, any> = {};
+export const consultationNotes: Record<string, any> = {};

@@ -32,16 +32,35 @@ export default function DoctorDashboardScreen({ navigation }: any) {
     }
   };
 
-  const startConsultation = (patient: any) => {
+  const startConsultation = async (patient: any) => {
     // Find active call for this patient
     const call = activeCalls.find(c => c.patientId === patient.id && c.status === 'waiting');
 
     if (call) {
+      // Fetch real insights, biometrics, and triage transcript from backend
+      let insights = null;
+      let biometrics = null;
+      let triageTranscript = null;
+      try {
+        const [insightsRes, biometricsRes, triageRes] = await Promise.all([
+          api.getInsights(patient.id),
+          api.getBiometrics(patient.id),
+          api.getTriageData(patient.id),
+        ]);
+        if (insightsRes.data) insights = insightsRes.data;
+        if (biometricsRes.data) biometrics = biometricsRes.data;
+        if (triageRes.data) triageTranscript = triageRes.data;
+      } catch (error) {
+        console.error('Failed to fetch patient data:', error);
+      }
+
       navigation.navigate('DoctorVideoCall', {
         roomName: call.roomName,
         patientId: patient.id,
         patientName: patient.name,
-        insights: null, // TODO: Fetch from backend
+        insights,
+        biometrics,
+        triageTranscript,
       });
     } else {
       Alert.alert(
