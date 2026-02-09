@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sprint 2 Work Agreement - Signature Copy</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 8.5in;
+            height: 11in;
+            background: white;
+            margin: 0 auto 20px;
+            padding: 40px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            page-break-after: always;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+            border-bottom: 3px solid #28a745;
+            padding-bottom: 15px;
+        }
+        
+        .title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #28a745;
+            margin-bottom: 8px;
+        }
+        
+        .subtitle {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .dates {
+            font-size: 11px;
+            font-weight: bold;
+            color: #28a745;
+        }
+        
+        .section {
+            margin-bottom: 18px;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            font-size: 11px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            color: #28a745;
+        }
+        
+        .signature-block {
+            margin-top: 35px;
+            page-break-inside: avoid;
+        }
+        
+        .signature-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .party {
+            width: 45%;
+        }
+        
+        .party-name {
+            font-weight: bold;
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+        
+        .line {
+            border-bottom: 1px solid #333;
+            height: 18px;
+            margin-bottom: 5px;
+        }
+        
+        .label {
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .deliverables {
+            background-color: #f0fff4;
+            padding: 15px;
+            border-left: 4px solid #28a745;
+            margin-bottom: 15px;
+            font-size: 10px;
+        }
+        
+        .deliverable-item {
+            margin-bottom: 8px;
+            padding-left: 15px;
+            position: relative;
+        }
+        
+        .deliverable-item:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .timeline {
+            background-color: #f9f9f9;
+            padding: 12px;
+            border: 1px solid #ddd;
+            margin-bottom: 15px;
+            font-size: 10px;
+        }
+        
+        .timeline-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px dotted #ddd;
+        }
+        
+        .timeline-row:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .timeline-phase {
+            font-weight: bold;
+            width: 30%;
+        }
+        
+        .timeline-hours {
+            width: 15%;
+            text-align: center;
+        }
+        
+        .timeline-deadline {
+            width: 55%;
+            text-align: right;
+        }
+        
+        .footer {
+            font-size: 10px;
+            color: #999;
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+        
+        .success-criteria {
+            background-color: #f0fff4;
+            padding: 10px;
+            border-left: 3px solid #28a745;
+            font-size: 10px;
+            margin-bottom: 12px;
+        }
+        
+        @media print {
+            body {
+                background-color: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">SPRINT 2 PROJECT AGREEMENT</div>
+            <div class="subtitle">TeleHealth AI End-to-End Consultation Flow</div>
+            <div class="dates">February 10-14, 2026 • 23 Hours Estimated • $400 Max Budget</div>
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ LEGAL NOTICE:</strong> This Statement of Work (SOW) is part of the main Freelance Developer Agreement dated February 7, 2026. All terms of that agreement apply unless specifically modified here.
+        </div>
+        
+        <div class="section">
+            <div class="section-title">OBJECTIVE & SCOPE</div>
+            <p style="font-size: 11px; margin-bottom: 8px;">
+                <strong>Goal:</strong> Build and validate the complete patient-to-doctor consultation flow with real users.
+            </p>
+        </div>
+        
+        <div class="deliverables">
+            <div style="font-weight: bold; margin-bottom: 8px;">✓ CORE DELIVERABLES</div>
+            <div class="deliverable-item">Patient registration through consultation request</div>
+            <div class="deliverable-item">AI triage chat with comprehensive biometrics collection</div>
+            <div class="deliverable-item">Real-time video consultation platform (Daily.co)</div>
+            <div class="deliverable-item">Doctor dashboard with patient insights and chat history</div>
+            <div class="deliverable-item">Consultation notes and AI assistance during calls</div>
+            <div class="deliverable-item">3 successful real consultations with user feedback</div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">5-PHASE TIMELINE</div>
+        </div>
+        
+        <div class="timeline">
+            <div class="timeline-row" style="font-weight: bold;">
+                <div class="timeline-phase">Phase</div>
+                <div class="timeline-hours">Hours</div>
+                <div class="timeline-deadline">Deadline</div>
+            </div>
+            
+            <div class="timeline-row">
+                <div class="timeline-phase">1. Foundation</div>
+                <div class="timeline-hours">3h</div>
+                <div class="timeline-deadline">Mon Feb 10, 6pm</div>
+            </div>
+            
+            <div class="timeline-row">
+                <div class="timeline-phase">2. Video Integration</div>
+                <div class="timeline-hours">4h</div>
+                <div class="timeline-deadline">Tue Feb 11, 6pm</div>
+            </div>
+            
+            <div class="timeline-row">
+                <div class="timeline-phase">3. Doctor Dashboard</div>
+                <div class="timeline-hours">4.5h</div>
+                <div class="timeline-deadline">Wed Feb 12, 6pm</div>
+            </div>
+            
+            <div class="timeline-row">
+                <div class="timeline-phase">4. Consultation Features</div>
+                <div class="timeline-hours">1.5h</div>
+                <div class="timeline-deadline">Thu Feb 13, 6pm</div>
+            </div>
+            
+            <div class="timeline-row">
+                <div class="timeline-phase">5. Testing & Validation</div>
+                <div class="timeline-hours">10h</div>
+                <div class="timeline-deadline">Fri Feb 14, 6pm</div>
+            </div>
+            
+            <div class="timeline-row" style="font-weight: bold; background-color: #f0fff4;">
+                <div class="timeline-phase">TOTAL</div>
+                <div class="timeline-hours">23h</div>
+                <div class="timeline-deadline">Feb 14, 6pm</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">BUDGET & PAYMENT</div>
+            <p style="font-size: 11px;">
+                <strong>Rate:</strong> $25/hour USD (per Master Agreement)<br>
+                <strong>Estimated Hours:</strong> 23 hours estimated<br>
+                <strong>Maximum Payment:</strong> $400 per sprint (all-or-nothing)<br>
+                <strong>Payment Model:</strong> ALL-OR-NOTHING - Only upon completion of all sprint tasks + unit tests + evals passing + app running successfully<br>
+                <strong>Payment Method:</strong> [Bank transfer / PayPal / chosen method]
+            </p>
+        </div>
+        
+        <div class="success-criteria">
+            <div style="font-weight: bold; margin-bottom: 6px;">✓ MUST-HAVE SUCCESS CRITERIA (ALL Required for Payment)</div>
+            • Patient can complete full flow without crashing<br>
+            • Doctor can review insights, transcript, biometrics<br>
+            • Video call works (both directions)<br>
+            • 3 real consultations completed with feedback<br>
+            • Unit tests written with >70% code coverage (ALL TESTS PASSING)<br>
+            • Evaluation suite executed and passing (Emergency: >90%, Safety: >90%, Overall: >80%)<br>
+            • Application runs successfully<br>
+            • All code merged to main branch
+        </div>
+        
+        <div class="section">
+            <div class="section-title">ACCEPTANCE CRITERIA (ALL-OR-NOTHING)</div>
+            <p style="font-size: 10px;">
+                <strong>Developer Submits:</strong><br>
+                ✓ All code merged to main (clean commits)<br>
+                ✓ Demo video (5-10 min end-to-end flow)<br>
+                ✓ Unit test coverage report (>70%, ALL TESTS PASSING)<br>
+                ✓ Eval suite results (eval-report.json)<br>
+                ✓ SPRINT_2_RESULTS.md with all findings<br>
+                ✓ Known issues list (if any)<br>
+                <br>
+                <strong>Client Reviews (ALL must pass for payment):</strong><br>
+                ✓ ALL deliverables 100% complete<br>
+                ✓ Unit tests: >70% coverage, ALL PASSING<br>
+                ✓ Evals: Emergency >90%, Safety >90%, Overall >80%<br>
+                ✓ App runs successfully (no critical bugs)<br>
+                ✓ 3 consultations completed<br>
+                ✓ Code quality meets standards<br>
+                <br>
+                <strong>Payment Decision:</strong><br>
+                If ALL requirements met: $400 max payment (hours × $25, capped)<br>
+                If ANY requirement fails: NO PAYMENT issued
+            </p>
+        </div>
+        
+        <div class="signature-block">
+            <p style="font-size: 10px; margin-bottom: 18px; font-weight: bold;">
+                BY SIGNING BELOW, BOTH PARTIES AGREE TO THE TERMS OF THIS SPRINT 2 PROJECT AGREEMENT.
+            </p>
+            
+            <div class="signature-line">
+                <div class="party">
+                    <div class="party-name">CLIENT</div>
+                    <div class="line"></div>
+                    <div class="label">Signature</div>
+                </div>
+                <div class="party">
+                    <div class="party-name">CONTRACTOR</div>
+                    <div class="line"></div>
+                    <div class="label">Signature</div>
+                </div>
+            </div>
+            
+            <div class="signature-line">
+                <div class="party">
+                    <div style="height: 18px; margin-bottom: 5px;"></div>
+                    <div class="label">Printed Name</div>
+                </div>
+                <div class="party">
+                    <div style="height: 18px; margin-bottom: 5px;"></div>
+                    <div class="label">Printed Name</div>
+                </div>
+            </div>
+            
+            <div class="signature-line">
+                <div class="party">
+                    <div style="height: 18px; margin-bottom: 5px;"></div>
+                    <div class="label">Date</div>
+                </div>
+                <div class="party">
+                    <div style="height: 18px; margin-bottom: 5px;"></div>
+                    <div class="label">Date</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p style="margin-bottom: 5px;">Full Agreement Available: SPRINT_2_WORK_AGREEMENT.md</p>
+            <p>Sprint Dates: February 10-14, 2026 | Created: February 7, 2026</p>
+        </div>
+    </div>
+</body>
+</html>

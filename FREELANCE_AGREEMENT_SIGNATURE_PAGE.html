@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freelance Developer Agreement - Signature Copy</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 8.5in;
+            height: 11in;
+            background: white;
+            margin: 0 auto 20px;
+            padding: 40px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            page-break-after: always;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 15px;
+        }
+        
+        .title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            color: #007bff;
+        }
+        
+        .signature-block {
+            margin-top: 40px;
+            page-break-inside: avoid;
+        }
+        
+        .signature-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 25px;
+        }
+        
+        .party {
+            width: 45%;
+        }
+        
+        .party-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .line {
+            border-bottom: 1px solid #333;
+            height: 20px;
+            margin-bottom: 5px;
+        }
+        
+        .label {
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .terms-summary {
+            background-color: #f0f8ff;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            margin-bottom: 20px;
+            font-size: 11px;
+        }
+        
+        .terms-item {
+            margin-bottom: 8px;
+            display: flex;
+        }
+        
+        .terms-key {
+            font-weight: bold;
+            width: 120px;
+            flex-shrink: 0;
+        }
+        
+        .terms-value {
+            flex: 1;
+        }
+        
+        .footer {
+            font-size: 10px;
+            color: #999;
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        
+        @media print {
+            body {
+                background-color: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">FREELANCE DEVELOPER AGREEMENT</div>
+            <div class="subtitle">TeleHealth AI MVP Project</div>
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ IMPORTANT:</strong> This agreement is legally binding. Both parties should review all terms carefully and consult legal counsel if needed before signing.
+        </div>
+        
+        <div class="terms-summary">
+            <div style="font-weight: bold; margin-bottom: 10px;">KEY TERMS</div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Rate:</div>
+                <div class="terms-value">$25/hour USD (early-stage startup)</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Hours/Week:</div>
+                <div class="terms-value">15 hours work + 1 hour sprint (16 max)</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Payment:</div>
+                <div class="terms-value">All-or-nothing: Only upon completion of ALL sprint tasks + unit tests + evals passing + app running successfully. Max $400/sprint.</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Location:</div>
+                <div class="terms-value">Flexible - Remote, Hybrid, or In-Person (to be agreed)</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Meetings:</div>
+                <div class="terms-value">2-3 per week (15-30 min each, developer chooses times)</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Term:</div>
+                <div class="terms-value">Sprint-based, 4-12 weeks initially, can extend</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">IP Ownership:</div>
+                <div class="terms-value">Client owns all work product created</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Confidentiality:</div>
+                <div class="terms-value">3 years after project completion</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Termination:</div>
+                <div class="terms-value">Either party, 1 week notice (or 24 hours for cause)</div>
+            </div>
+            
+            <div class="terms-item">
+                <div class="terms-key">Rate Increases:</div>
+                <div class="terms-value">After 3 successful sprints: $30/hr; After 6 successful sprints: $35/hr</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">SCOPE OF WORK</div>
+            <p style="font-size: 11px; margin-bottom: 10px;">
+                <strong>Project:</strong> TeleHealth AI Mobile Application + Backend<br>
+                <strong>Stack:</strong> React Native/Expo + Node.js/Express + PostgreSQL + OpenAI API<br>
+                <strong>Deliverables:</strong> See attached Exhibit A and weekly work plans agreed in writing
+            </p>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">PAYMENT STRUCTURE</div>
+            <p style="font-size: 11px; margin-bottom: 10px;">
+                • Rate: $25/hour USD (early-stage rate)<br>
+                • Payment frequency: Weekly or bi-weekly (choose one)<br>
+                • Rate increases: $50/hr after 4-week trial, $60/hr after 8 weeks<br>
+                • Equity option available (discuss separately)<br>
+                • Portfolio rights granted (after launch)
+            </p>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">KEY DIFFERENCES FROM DRAFT</div>
+            <p style="font-size: 11px; margin-bottom: 10px;">
+                ✅ <strong>Early-Stage Rate:</strong> $25/hr (competitive starting rate)<br>
+                ✅ <strong>Flexible Location:</strong> Remote, hybrid, or in-person (developer chooses)<br>
+                ✅ <strong>Reasonable Meetings:</strong> Developer picks meeting times<br>
+                ✅ <strong>No Surveillance:</strong> No mandatory screenshots or time tracking surveillance<br>
+                ✅ <strong>Rate Growth:</strong> Automatic increases if milestones met<br>
+                ✅ <strong>Work-Life Balance:</strong> Entitled to time off, no paid, but no penalty<br>
+                ✅ <strong>Portfolio Rights:</strong> Can use project in portfolio<br>
+                ✅ <strong>Equity Opportunity:</strong> Can discuss equity grant (0.25-0.5%)
+            </p>
+        </div>
+        
+        <div class="signature-block">
+            <p style="font-size: 10px; margin-bottom: 20px; font-weight: bold;">
+                BY SIGNING BELOW, BOTH PARTIES ACKNOWLEDGE THEY HAVE READ, UNDERSTAND, AND AGREE TO ALL TERMS OF THIS AGREEMENT.
+            </p>
+            
+            <div class="signature-line">
+                <div class="party">
+                    <div class="party-name">CLIENT</div>
+                    <div class="line"></div>
+                    <div class="label">Signature</div>
+                </div>
+                <div class="party">
+                    <div class="party-name">CONTRACTOR</div>
+                    <div class="line"></div>
+                    <div class="label">Signature</div>
+                </div>
+            </div>
+            
+            <div class="signature-line">
+                <div class="party">
+                    <div style="height: 20px; margin-bottom: 5px;"></div>
+                    <div class="label">Printed Name</div>
+                </div>
+                <div class="party">
+                    <div style="height: 20px; margin-bottom: 5px;"></div>
+                    <div class="label">Printed Name</div>
+                </div>
+            </div>
+            
+            <div class="signature-line">
+                <div class="party">
+                    <div style="height: 20px; margin-bottom: 5px;"></div>
+                    <div class="label">Date</div>
+                </div>
+                <div class="party">
+                    <div style="height: 20px; margin-bottom: 5px;"></div>
+                    <div class="label">Date</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>Full Agreement Available: FREELANCE_DEVELOPER_AGREEMENT_REVISED.md</p>
+            <p>Effective Date: February 7, 2026</p>
+        </div>
+    </div>
+</body>
+</html>
