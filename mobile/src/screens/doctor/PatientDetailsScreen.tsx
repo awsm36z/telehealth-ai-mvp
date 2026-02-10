@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, Button, Card, Divider, ActivityIndicator, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing } from '../../theme';
 import api from '../../utils/api';
 
@@ -264,9 +265,19 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
         <View style={styles.actionButtons}>
           <Button
             mode="contained"
-            onPress={() => {
-              // Navigate to video call with this patient
-              navigation.navigate('DoctorVideoCall', { patientId });
+            onPress={async () => {
+              // Generate a unique room name for this consultation
+              const roomName = `consultation-${patientId}-${Date.now()}`;
+              
+              // Navigate to video call with all required data
+              navigation.navigate('DoctorVideoCall', {
+                roomName,
+                patientId,
+                patientName: patient?.name || 'Unknown Patient',
+                insights,
+                biometrics,
+                triageTranscript: triageData,
+              });
             }}
             style={styles.button}
             icon="video"

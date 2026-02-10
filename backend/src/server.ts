@@ -2,6 +2,18 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import * as Sentry from '@sentry/node';
+
+// Initialize Sentry error monitoring (Issue #9)
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 1.0,
+  });
+  console.log('🛡️ Sentry error monitoring initialized');
+}
+
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -15,6 +27,7 @@ import patientsRoutes from './routes/patients';
 import videoRoutes from './routes/video';
 import consultationsRoutes from './routes/consultations';
 import aiAssistRoutes from './routes/ai-assist';
+import analyticsRoutes from './routes/analytics';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
@@ -34,6 +47,7 @@ app.use('/api/patients', patientsRoutes);
 app.use('/api/video', videoRoutes);
 app.use('/api/consultations', consultationsRoutes);
 app.use('/api/ai-assist', aiAssistRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {
@@ -55,6 +69,12 @@ app.use((req: Request, res: Response) => {
 // Error handler
 app.use((err: any, req: Request, res: Response, next: any) => {
   console.error('Error:', err);
+
+  // Report to Sentry if configured
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(err);
+  }
+
   res.status(err.status || 500).json({
     error: err.message || 'Internal Server Error',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),

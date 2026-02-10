@@ -465,6 +465,19 @@ const api = {
     }
   },
 
+  // Analytics
+  trackEvent: async (event: string, properties?: Record<string, any>) => {
+    try {
+      await fetchWithTimeout(`${API_URL}/analytics/track`, {
+        method: 'POST',
+        body: JSON.stringify({ event, properties }),
+      }, 5000); // Short timeout - analytics shouldn't block UI
+    } catch (error) {
+      // Silently fail - analytics should never break the app
+      console.log('Analytics tracking failed (non-critical):', event);
+    }
+  },
+
   getActiveCalls: async () => {
     try {
       const response = await fetchWithTimeout(`${API_URL}/video/active-calls`, {

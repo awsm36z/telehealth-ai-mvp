@@ -69,6 +69,17 @@ export default function InsightsScreen({ route, navigation }: any) {
         </LinearGradient>
 
         <View style={styles.content}>
+          {/* Medical Disclaimer Banner */}
+          <Surface style={[styles.disclaimerBanner, shadows.small]}>
+            <MaterialCommunityIcons name="shield-alert" size={24} color="#FF9500" />
+            <View style={styles.disclaimerBannerContent}>
+              <Text style={styles.disclaimerBannerTitle}>Not a Medical Diagnosis</Text>
+              <Text style={styles.disclaimerBannerText}>
+                This information helps your doctor understand your symptoms. It is NOT a medical diagnosis. Only a licensed healthcare provider can diagnose and treat medical conditions.
+              </Text>
+            </View>
+          </Surface>
+
           {/* Summary */}
           <Surface style={[styles.section, shadows.medium]}>
             <SectionHeader icon="file-document" title="Summary" />
@@ -227,6 +238,31 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
+  },
+  disclaimerBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF8E1',
+    borderRadius: theme.roundness * 1.5,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    gap: spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9500',
+  },
+  disclaimerBannerContent: {
+    flex: 1,
+  },
+  disclaimerBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#E65100',
+    marginBottom: spacing.xs,
+  },
+  disclaimerBannerText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#795548',
   },
   section: {
     backgroundColor: theme.colors.surface,

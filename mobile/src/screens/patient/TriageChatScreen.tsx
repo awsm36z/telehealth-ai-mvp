@@ -33,6 +33,7 @@ export default function TriageChatScreen({ navigation }: any) {
   // Fetch initial greeting with biometric analysis on mount
   useEffect(() => {
     fetchInitialGreeting();
+    api.trackEvent('triage_started');
   }, []);
 
   useEffect(() => {
@@ -132,6 +133,7 @@ export default function TriageChatScreen({ navigation }: any) {
 
       // Check if triage is complete
       if (response.data.complete) {
+        api.trackEvent('triage_completed', { questionCount });
         // Show the final message, then navigate to insights after a delay
         setTimeout(() => {
           navigation.navigate('InsightsScreen', {
@@ -139,6 +141,11 @@ export default function TriageChatScreen({ navigation }: any) {
             insights: response.data.insights,
           });
         }, 2500);
+      }
+
+      // Track emergency detection
+      if (response.data.emergency) {
+        api.trackEvent('emergency_detected');
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -182,6 +189,14 @@ export default function TriageChatScreen({ navigation }: any) {
           color="rgba(255, 255, 255, 0.8)"
           style={styles.progressBar}
         />
+      </View>
+
+      {/* Medical Disclaimer */}
+      <View style={styles.disclaimerBar}>
+        <MaterialCommunityIcons name="shield-check" size={14} color={theme.colors.onSurfaceVariant} />
+        <Text style={styles.disclaimerBarText}>
+          Not a diagnosis. Your doctor will review this information.
+        </Text>
       </View>
 
       {/* Messages */}
@@ -303,6 +318,19 @@ const styles = StyleSheet.create({
   progressBar: {
     height: 3,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  disclaimerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  disclaimerBarText: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
   },
   keyboardView: {
     flex: 1,

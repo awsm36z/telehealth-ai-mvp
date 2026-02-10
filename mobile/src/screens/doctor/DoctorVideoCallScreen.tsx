@@ -4,6 +4,7 @@ import { Text, IconButton, Surface, Button, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
@@ -138,11 +139,21 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     try {
       setIsConnecting(true);
 
+      // Get logged-in doctor's credentials from AsyncStorage
+      const [doctorId, doctorName] = await Promise.all([
+        AsyncStorage.getItem('userId'),
+        AsyncStorage.getItem('userName'),
+      ]);
+
+      if (!doctorId || !doctorName) {
+        throw new Error('Doctor credentials not found. Please log in again.');
+      }
+
       // Get token to join the room as doctor
       const response = await api.joinVideoRoom(
         roomName,
-        'doctor-1', // TODO: Replace with actual doctor ID
-        'Dr. Martinez',
+        doctorId,
+        doctorName,
         'doctor'
       );
 
