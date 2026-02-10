@@ -4,6 +4,7 @@ import { Text, Button, Surface } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
@@ -12,11 +13,12 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
 
   const [waitTime, setWaitTime] = useState(0);
   const [roomName, setRoomName] = useState<string | null>(null);
+  const [patientId, setPatientId] = useState<string | null>(null);
   const [status, setStatus] = useState<'creating' | 'waiting' | 'doctor_joined' | 'error'>('creating');
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    createRoom();
+    initializeRoom();
     startPulseAnimation();
   }, []);
 
@@ -51,6 +53,21 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
     return () => clearInterval(pollInterval);
   }, [roomName]);
 
+  const initializeRoom = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) {
+        setStatus('error');
+        return;
+      }
+      setPatientId(userId);
+      await createRoom(userId);
+    } catch (error) {
+      console.error('Initialize room error:', error);
+      setStatus('error');
+    }
+  };
+
   const startPulseAnimation = () => {
     Animated.loop(
       Animated.sequence([
@@ -70,10 +87,9 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
     ).start();
   };
 
-  const createRoom = async () => {
+  const createRoom = async (resolvedPatientId: string) => {
     try {
-      // TODO: Replace '1' with actual authenticated patient ID
-      const response = await api.createVideoRoom('1');
+      const response = await api.createVideoRoom(resolvedPatientId);
 
       if (response.error) {
         throw new Error(response.error);
@@ -89,10 +105,10 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
   };
 
   const joinCall = () => {
-    if (roomName) {
+    if (roomName && patientId) {
       navigation.navigate('VideoCall', {
         roomName,
-        patientId: '1', // TODO: Replace with actual patient ID
+        patientId,
       });
     }
   };

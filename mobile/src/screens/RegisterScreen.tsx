@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, HelperText, Checkbox } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../theme';
 import api from '../utils/api';
 
@@ -62,6 +63,9 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
       }
 
       const { token, user } = response.data;
+      await AsyncStorage.setItem('userName', user.fullName || user.name || formData.fullName || 'Patient');
+      await AsyncStorage.setItem('userEmail', user.email || formData.email || '');
+      await AsyncStorage.setItem('userId', user.id || '');
       await onRegister(token, user.type);
     } catch (err: any) {
       setErrors({ general: 'Registration failed. Please try again.' });

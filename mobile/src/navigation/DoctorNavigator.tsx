@@ -9,6 +9,7 @@ import DoctorDashboardScreen from '../screens/doctor/DoctorDashboardScreen';
 import DoctorProfileScreen from '../screens/doctor/DoctorProfileScreen';
 import DoctorVideoCallScreen from '../screens/doctor/DoctorVideoCallScreen';
 import PatientDetailsScreen from '../screens/doctor/PatientDetailsScreen';
+import TriageAssessmentScreen from '../screens/doctor/TriageAssessmentScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -19,6 +20,7 @@ function DashboardStackNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} />
       <Stack.Screen name="PatientDetails" component={PatientDetailsScreen} />
+      <Stack.Screen name="TriageAssessment" component={TriageAssessmentScreen} />
       <Stack.Screen name="DoctorVideoCall" component={DoctorVideoCallScreen} />
     </Stack.Navigator>
   );
