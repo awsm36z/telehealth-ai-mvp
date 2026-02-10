@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
+import { patientProfiles } from '../storage';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -54,6 +55,22 @@ router.post(
       };
 
       users.push(user);
+
+      // If patient, add to patient profiles
+      if (userType === 'patient') {
+        patientProfiles[user.id] = {
+          id: user.id,
+          name: fullName,
+          email: user.email,
+          phone,
+          age: undefined,
+          gender: undefined,
+          dateOfBirth,
+          triageData: null,
+          createdAt: new Date().toISOString(),
+        };
+        console.log(`✅ Created patient profile for ${fullName} (ID: ${user.id})`);
+      }
 
       // Generate JWT token
       const token = jwt.sign(

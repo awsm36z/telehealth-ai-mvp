@@ -8,15 +8,17 @@ import { theme } from '../theme';
 import DoctorDashboardScreen from '../screens/doctor/DoctorDashboardScreen';
 import DoctorProfileScreen from '../screens/doctor/DoctorProfileScreen';
 import DoctorVideoCallScreen from '../screens/doctor/DoctorVideoCallScreen';
+import PatientDetailsScreen from '../screens/doctor/PatientDetailsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-// Dashboard Stack (includes video call)
+// Dashboard Stack (includes video call and patient details)
 function DashboardStackNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} />
+      <Stack.Screen name="PatientDetails" component={PatientDetailsScreen} />
       <Stack.Screen name="DoctorVideoCall" component={DoctorVideoCallScreen} />
     </Stack.Navigator>
   );

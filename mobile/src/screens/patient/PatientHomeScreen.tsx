@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { Text, Card, Button, Avatar, Surface, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import { useNavigation } from '@react-navigation/native';
 
@@ -11,7 +12,22 @@ const { width } = Dimensions.get('window');
 
 export default function PatientHomeScreen() {
   const navigation = useNavigation();
-  const [userName] = useState('Sarah'); // Would come from context/state
+  const [userName, setUserName] = useState('Patient');
+
+  useEffect(() => {
+    loadUserName();
+  }, []);
+
+  const loadUserName = async () => {
+    try {
+      const name = await AsyncStorage.getItem('userName');
+      if (name) {
+        setUserName(name);
+      }
+    } catch (error) {
+      console.error('Error loading user name:', error);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -95,18 +111,29 @@ export default function PatientHomeScreen() {
               View All
             </Button>
           </View>
-          <ConsultationCard
-            doctorName="Dr. Martinez"
-            date="Jan 28, 2026"
-            diagnosis="Common Cold"
-            status="completed"
-          />
-          <ConsultationCard
-            doctorName="Dr. Chen"
-            date="Jan 15, 2026"
-            diagnosis="Annual Checkup"
-            status="completed"
-          />
+          <Card style={[styles.consultationCard, shadows.small]}>
+            <Card.Content>
+              <View style={styles.emptyStateContent}>
+                <MaterialCommunityIcons
+                  name="history"
+                  size={48}
+                  color={theme.colors.onSurfaceVariant}
+                  style={styles.emptyIcon}
+                />
+                <Text style={styles.emptyTitle}>No Consultations Yet</Text>
+                <Text style={styles.emptySubtext}>
+                  Start a consultation to get diagnosed by our AI and doctors
+                </Text>
+                <Button
+                  mode="contained"
+                  onPress={() => navigation.navigate('TriageFlow' as never)}
+                  style={styles.emptyActionButton}
+                >
+                  Start First Consultation
+                </Button>
+              </View>
+            </Card.Content>
+          </Card>
         </View>
 
         <View style={{ height: 100 }} />
@@ -383,5 +410,29 @@ const styles = StyleSheet.create({
     right: spacing.lg,
     bottom: spacing.xl + 70, // Account for tab bar
     backgroundColor: theme.colors.primary,
+  },
+  emptyStateContent: {
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
+  },
+  emptyIcon: {
+    marginBottom: spacing.md,
+    opacity: 0.5,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    marginBottom: spacing.xs,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  emptyActionButton: {
+    marginTop: spacing.md,
   },
 });

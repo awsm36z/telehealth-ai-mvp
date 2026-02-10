@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, HelperText } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../theme';
 import api from '../utils/api';
 
@@ -32,6 +33,10 @@ export default function LoginScreen({ navigation, onLogin }: any) {
     }
 
     const { token, user } = response.data;
+    // Store full user data including name
+    await AsyncStorage.setItem('userName', user.fullName || user.name || 'Patient');
+    await AsyncStorage.setItem('userEmail', user.email);
+    await AsyncStorage.setItem('userId', user.id);
     await onLogin(token, user.type);
     setLoading(false);
   };

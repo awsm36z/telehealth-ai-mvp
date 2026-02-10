@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Surface, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
 export default function BiometricEntryScreen({ navigation }: any) {
+  const [patientId, setPatientId] = useState<string | null>(null);
   const [biometrics, setBiometrics] = useState({
     bloodPressureSystolic: '',
     bloodPressureDiastolic: '',

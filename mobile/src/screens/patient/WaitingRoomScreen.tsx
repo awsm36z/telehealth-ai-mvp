@@ -180,7 +180,7 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
 
         {/* Bottom Actions */}
         <View style={styles.bottomSection}>
-          {status === 'doctor_joined' ? (
+          {status === 'doctor_joined' && (
             <Button
               mode="contained"
               onPress={joinCall}
@@ -190,17 +190,16 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
             >
               Join Video Call
             </Button>
-          ) : (
-            <Button
-              mode="outlined"
-              onPress={cancelWaiting}
-              style={styles.cancelButton}
-              labelStyle={styles.cancelButtonLabel}
-              icon="close"
-            >
-              Leave Waiting Room
-            </Button>
           )}
+          <Button
+            mode="outlined"
+            onPress={cancelWaiting}
+            style={styles.cancelButton}
+            labelStyle={styles.cancelButtonLabel}
+            icon="close"
+          >
+            Leave Waiting Room
+          </Button>
         </View>
       </View>
     </SafeAreaView>

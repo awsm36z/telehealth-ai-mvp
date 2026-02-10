@@ -211,10 +211,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               await api.endVideoCall(roomName);
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
-              navigation.navigate('Dashboard');
+              navigation.popToTop();
             } catch (error) {
               console.error('Error ending call:', error);
-              navigation.navigate('Dashboard');
+              navigation.popToTop();
             }
           },
         },
@@ -840,6 +840,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.95)',
     borderTopLeftRadius: theme.roundness * 2,
     borderTopRightRadius: theme.roundness * 2,
+    zIndex: 10,
+    elevation: 10,
   },
   insightsScroll: {
     padding: spacing.lg,
@@ -1039,6 +1041,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: theme.roundness * 2,
     borderTopRightRadius: theme.roundness * 2,
     padding: spacing.lg,
+    zIndex: 10,
+    elevation: 10,
   },
   notesInput: {
     flex: 1,
