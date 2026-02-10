@@ -11,15 +11,44 @@ import api from '../../utils/api';
 export default function DoctorDashboardScreen({ navigation }: any) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCalls, setActiveCalls] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Poll for active calls (patients waiting for doctor)
+  // Fetch patients and active calls when screen is focused
   useFocusEffect(
     useCallback(() => {
+      fetchPatients();
       fetchActiveCalls();
-      const interval = setInterval(fetchActiveCalls, 5000);
+      const interval = setInterval(() => {
+        fetchPatients();
+        fetchActiveCalls();
+      }, 5000);
       return () => clearInterval(interval);
     }, [])
   );
+
+  const fetchPatients = async () => {
+    try {
+      const response = await api.getPatientQueue();
+      if (response.data) {
+        // Map backend data to UI format
+        const formattedPatients = response.data.map((patient: any) => ({
+          id: patient.id || patient._id,
+          name: patient.name || 'Unknown',
+          age: patient.age || 0,
+          chiefComplaint: patient.chiefComplaint || 'General consultation',
+          triageCompleted: new Date(patient.triageCompletedAt).toLocaleString() || 'Pending',
+          status: patient.status || 'waiting',
+          severity: patient.severity || 'low',
+        }));
+        setPatients(formattedPatients);
+      }
+    } catch (error) {
+      console.error('Failed to fetch patients:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchActiveCalls = async () => {
     try {
@@ -72,35 +101,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
   };
 
   // Mock patient queue data
-  const patients = [
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      age: 32,
-      chiefComplaint: 'Sore throat and fever',
-      triageCompleted: '15 min ago',
-      status: 'waiting',
-      severity: 'medium',
-    },
-    {
-      id: '2',
-      name: 'Michael Chen',
-      age: 45,
-      chiefComplaint: 'Chest pain and shortness of breath',
-      triageCompleted: '5 min ago',
-      status: 'urgent',
-      severity: 'high',
-    },
-    {
-      id: '3',
-      name: 'Emily Rodriguez',
-      age: 28,
-      chiefComplaint: 'Headache and nausea',
-      triageCompleted: '30 min ago',
-      status: 'waiting',
-      severity: 'low',
-    },
-  ];
+  const patientsForDisplay = patients.length > 0 ? patients : [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -115,7 +116,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
           <View style={styles.headerContent}>
             <View>
               <Text style={styles.greeting}>Dr. Martinez</Text>
-              <Text style={styles.subtitle}>{patients.length} patients waiting</Text>
+              <Text style={styles.subtitle}>{patientsForDisplay.length} patients waiting</Text>
             </View>
             <Avatar.Text
               size={56}
@@ -146,15 +147,24 @@ export default function DoctorDashboardScreen({ navigation }: any) {
         {/* Patient Queue */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Patient Queue</Text>
-          {patients.map((patient) => (
-            <PatientCard
-              key={patient.id}
-              patient={patient}
-              navigation={navigation}
-              hasActiveCall={activeCalls.some(c => c.patientId === patient.id && c.status === 'waiting')}
+          {!loading && patientsForDisplay.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Card.Content>
+                <Text style={styles.emptyText}>No patients in queue</Text>
+                <Text style={styles.emptySubtext}>Patients will appear here after completing triage</Text>
+              </Card.Content>
+            </Card>
+          ) : (
+            patientsForDisplay.map((patient) => (
+              <PatientCard
+                key={patient.id}
+                patient={patient}
+                navigation={navigation}
+                hasActiveCall={activeCalls.some(c => c.patientId === patient.id && c.status === 'waiting')}
               onStartCall={() => startConsultation(patient)}
             />
-          ))}
+            ))
+          )}
         </View>
 
         <View style={{ height: 100 }} />
@@ -434,5 +444,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  emptyCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness,
+    marginBottom: spacing.md,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
   },
 });

@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { patientBiometrics, patientProfiles } from '../storage';
+import { patientBiometrics, patientProfiles, patientInsights, patientTriageData } from '../storage';
 
 const router = express.Router();
 
@@ -9,18 +9,18 @@ const router = express.Router();
  */
 router.get('/queue', async (req: Request, res: Response) => {
   try {
-    // Mock patient queue (replace with database query)
-    const patients = [
-      {
-        id: '1',
-        name: 'Sarah Johnson',
-        age: 32,
-        chiefComplaint: 'Sore throat and fever',
-        triageCompleted: '15 min ago',
-        status: 'waiting',
-        severity: 'medium',
-      },
-    ];
+    // Get patients from storage who have completed triage
+    const patients = Object.values(patientProfiles).map((profile: any) => ({
+      id: profile.id,
+      name: profile.name,
+      age: profile.age,
+      chiefComplaint: profile.triageData?.chiefComplaint || 'General consultation',
+      triageCompletedAt: profile.triageData?.completedAt || new Date().toISOString(),
+      status: 'waiting',
+      severity: profile.triageData?.urgency || 'low',
+    }));
+
+    console.log(`📋 Retrieved ${patients.length} patients from queue`);
 
     res.json(patients);
   } catch (error: any) {
@@ -89,23 +89,18 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const profile = patientProfiles[id];
     const biometrics = patientBiometrics[id];
+    const insights = patientInsights[id];
+    const triageData = patientTriageData[id];
 
     if (!profile) {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    // In production, also fetch:
-    // - AI insights
-    // - Chat transcript
-    // - Medical history
-    // - Medications
-    // - Allergies
-
     res.json({
       profile,
       biometrics,
-      insights: null, // Will be populated from triage session
-      chatTranscript: [], // Will be populated from triage session
+      insights,
+      triageData,
     });
   } catch (error: any) {
     console.error('Get patient error:', error);

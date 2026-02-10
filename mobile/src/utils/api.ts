@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // API Configuration
 // Change this based on your environment:
@@ -22,19 +23,44 @@ const API_URL = getBaseURL();
 
 console.log('🌐 API URL:', API_URL);
 
-// Helper function for fetch requests
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 30000) => {
+// Get auth token from storage
+const getAuthToken = async (): Promise<string | null> => {
+  try {
+    return await AsyncStorage.getItem('userToken');
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
+};
+
+// Helper function for fetch requests (with optional auth)
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit = {},
+  timeout = 30000,
+  includeAuth = false
+) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
+    const headers: any = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    // Add authorization header for protected endpoints
+    if (includeAuth) {
+      const token = await getAuthToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
     });
     clearTimeout(timeoutId);
     return response;
@@ -156,7 +182,7 @@ const api = {
     try {
       const response = await fetchWithTimeout(`${API_URL}/insights/${patientId}`, {
         method: 'GET',
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -182,7 +208,7 @@ const api = {
     try {
       const response = await fetchWithTimeout(`${API_URL}/patients/queue`, {
         method: 'GET',
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -209,7 +235,7 @@ const api = {
       const response = await fetchWithTimeout(`${API_URL}/patients/${patientId}/biometrics`, {
         method: 'POST',
         body: JSON.stringify(biometricData),
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -234,7 +260,7 @@ const api = {
     try {
       const response = await fetchWithTimeout(`${API_URL}/patients/${patientId}/biometrics`, {
         method: 'GET',
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -259,7 +285,7 @@ const api = {
     try {
       const response = await fetchWithTimeout(`${API_URL}/patients/${patientId}`, {
         method: 'GET',
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -285,7 +311,7 @@ const api = {
     try {
       const response = await fetchWithTimeout(`${API_URL}/insights/${patientId}/triage`, {
         method: 'GET',
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -312,7 +338,7 @@ const api = {
       const response = await fetchWithTimeout(`${API_URL}/ai-assist/ask`, {
         method: 'POST',
         body: JSON.stringify({ question, patientId }),
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -339,7 +365,7 @@ const api = {
       const response = await fetchWithTimeout(`${API_URL}/consultations/${patientId}/notes`, {
         method: 'PUT',
         body: JSON.stringify({ notes, roomName }),
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -366,7 +392,7 @@ const api = {
       const response = await fetchWithTimeout(`${API_URL}/video/create-room`, {
         method: 'POST',
         body: JSON.stringify({ patientId, sessionId }),
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
@@ -443,7 +469,7 @@ const api = {
     try {
       const response = await fetchWithTimeout(`${API_URL}/video/active-calls`, {
         method: 'GET',
-      });
+      }, 30000, true);
 
       const data = await response.json();
 
