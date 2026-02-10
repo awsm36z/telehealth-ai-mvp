@@ -11,8 +11,11 @@ import { Text, TextInput, IconButton, Surface, ProgressBar } from 'react-native-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
+
+const CONSULTATION_STATE_KEY = 'consultationState';
 
 interface Message {
   id: string;
@@ -28,27 +31,120 @@ export default function TriageChatScreen({ navigation }: any) {
   const [isLoading, setIsLoading] = useState(true);
   const [progress, setProgress] = useState(0.1);
   const [questionCount, setQuestionCount] = useState(1);
+  const [patientId, setPatientId] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Fetch initial greeting with biometric analysis on mount
+  // Resolve user ID before starting triage
   useEffect(() => {
-    fetchInitialGreeting();
-    api.trackEvent('triage_started');
+    initializeTriage();
   }, []);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  const fetchInitialGreeting = async () => {
+  const initializeTriage = async () => {
+    try {
+      const storedUserId = await AsyncStorage.getItem('userId');
+      if (!storedUserId) {
+        setIsLoading(false);
+        setMessages([{
+          id: '1',
+          role: 'ai',
+          content: "I couldn't verify your account. Please log in again to continue.",
+          timestamp: new Date(),
+        }]);
+        return;
+      }
+
+      setPatientId(storedUserId);
+      const restored = await restoreConsultationState(storedUserId);
+      if (!restored) {
+        await fetchInitialGreeting(storedUserId);
+      }
+      api.trackEvent('triage_started');
+    } catch (error) {
+      console.error('Error initializing triage:', error);
+      setIsLoading(false);
+    }
+  };
+
+  const restoreConsultationState = async (resolvedPatientId: string): Promise<boolean> => {
+    try {
+      const raw = await AsyncStorage.getItem(CONSULTATION_STATE_KEY);
+      if (!raw) return false;
+
+      const saved = JSON.parse(raw);
+      if (
+        saved?.patientId !== resolvedPatientId ||
+        saved?.status !== 'in_progress' ||
+        !Array.isArray(saved?.messages) ||
+        saved.messages.length === 0
+      ) {
+        return false;
+      }
+
+      const restoredMessages: Message[] = saved.messages.map((m: any, idx: number) => ({
+        id: m.id || `${Date.now()}-${idx}`,
+        role: m.role === 'user' ? 'user' : 'ai',
+        content: m.content || '',
+        timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+      }));
+
+      setMessages(restoredMessages);
+      setQuestionCount(saved.questionCount || 1);
+      setProgress(saved.progress || 0.1);
+      setIsLoading(false);
+      return true;
+    } catch (error) {
+      console.error('Error restoring consultation state:', error);
+      return false;
+    }
+  };
+
+  const persistInProgressState = async (nextMessages: Message[], resolvedPatientId: string, nextQuestionCount: number, nextProgress: number) => {
+    try {
+      await AsyncStorage.setItem(
+        CONSULTATION_STATE_KEY,
+        JSON.stringify({
+          status: 'in_progress',
+          patientId: resolvedPatientId,
+          messages: nextMessages,
+          questionCount: nextQuestionCount,
+          progress: nextProgress,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    } catch (error) {
+      console.error('Error saving consultation state:', error);
+    }
+  };
+
+  const persistCompletedState = async (resolvedPatientId: string, triageData: any, insights: any) => {
+    try {
+      await AsyncStorage.setItem(
+        CONSULTATION_STATE_KEY,
+        JSON.stringify({
+          status: 'triage_complete',
+          patientId: resolvedPatientId,
+          triageData,
+          insights,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    } catch (error) {
+      console.error('Error saving completed consultation state:', error);
+    }
+  };
+
+  const fetchInitialGreeting = async (resolvedPatientId: string) => {
     try {
       setIsLoading(true);
 
       // Send initial message to trigger biometric analysis
-      // TODO: Replace '1' with actual authenticated patient ID from auth context
       const response = await api.triageChat({
         messages: [{ role: 'user', content: '__INITIAL_GREETING__' }],
-        patientId: '1', // Demo patient ID
+        patientId: resolvedPatientId,
       });
 
       if (response.data && !response.error) {
@@ -58,7 +154,9 @@ export default function TriageChatScreen({ navigation }: any) {
           content: response.data.message,
           timestamp: new Date(),
         };
-        setMessages([aiMessage]);
+        const nextMessages = [aiMessage];
+        setMessages(nextMessages);
+        await persistInProgressState(nextMessages, resolvedPatientId, 1, 0.1);
       } else {
         // Fallback to default greeting if API fails
         const fallbackMessage: Message = {
@@ -67,7 +165,9 @@ export default function TriageChatScreen({ navigation }: any) {
           content: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
           timestamp: new Date(),
         };
-        setMessages([fallbackMessage]);
+        const nextMessages = [fallbackMessage];
+        setMessages(nextMessages);
+        await persistInProgressState(nextMessages, resolvedPatientId, 1, 0.1);
       }
     } catch (error) {
       console.error('Error fetching initial greeting:', error);
@@ -91,7 +191,7 @@ export default function TriageChatScreen({ navigation }: any) {
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || !patientId) return;
 
     // Add user message
     const userMessage: Message = {
@@ -107,10 +207,9 @@ export default function TriageChatScreen({ navigation }: any) {
 
     try {
       // Call backend API for next triage question
-      // TODO: Replace '1' with actual authenticated patient ID from auth context
       const response = await api.triageChat({
         messages: [...messages, userMessage],
-        patientId: '1', // Demo patient ID
+        patientId,
       });
 
       if (response.error) {
@@ -125,15 +224,20 @@ export default function TriageChatScreen({ navigation }: any) {
       };
 
       // Update progress
-      setQuestionCount((prev) => prev + 1);
-      setProgress(Math.min(questionCount / 10, 1)); // Assume 10 questions max
+      const nextQuestionCount = questionCount + 1;
+      const nextProgress = Math.min(nextQuestionCount / 10, 1); // Assume 10 questions max
+      setQuestionCount(nextQuestionCount);
+      setProgress(nextProgress);
 
       // Always show the AI message
-      setMessages((prev) => [...prev, aiMessage]);
+      const nextMessages = [...messages, userMessage, aiMessage];
+      setMessages(nextMessages);
+      await persistInProgressState(nextMessages, patientId, nextQuestionCount, nextProgress);
 
       // Check if triage is complete
       if (response.data.complete) {
-        api.trackEvent('triage_completed', { questionCount });
+        api.trackEvent('triage_completed', { questionCount: nextQuestionCount });
+        await persistCompletedState(patientId, response.data.triageData, response.data.insights);
         // Show the final message, then navigate to insights after a delay
         setTimeout(() => {
           navigation.navigate('InsightsScreen', {

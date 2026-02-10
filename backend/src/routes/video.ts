@@ -24,6 +24,21 @@ router.post('/create-room', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Patient ID is required' });
     }
 
+    // Reuse existing waiting/active room for this patient to avoid room divergence.
+    const existingCall = Object.values(activeCalls).find(
+      (call: any) =>
+        call.patientId === patientId &&
+        (call.status === 'waiting' || call.status === 'active')
+    ) as any;
+
+    if (existingCall) {
+      return res.json({
+        roomName: existingCall.roomName,
+        roomUrl: existingCall.roomUrl,
+        message: 'Reusing existing video room',
+      });
+    }
+
     // Create unique room name
     const roomName = `consultation-${patientId}-${Date.now()}`;
 

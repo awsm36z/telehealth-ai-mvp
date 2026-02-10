@@ -8,7 +8,6 @@ import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
 export default function BiometricEntryScreen({ navigation }: any) {
-  const [patientId, setPatientId] = useState<string | null>(null);
   const [biometrics, setBiometrics] = useState({
     bloodPressureSystolic: '',
     bloodPressureDiastolic: '',
@@ -36,8 +35,12 @@ export default function BiometricEntryScreen({ navigation }: any) {
   const handleSave = async () => {
     setLoading(true);
     try {
-      // TODO: Get actual patient ID from auth context
-      const patientId = '1';
+      const patientId = await AsyncStorage.getItem('userId');
+      if (!patientId) {
+        Alert.alert('Error', 'Unable to identify current user. Please log in again.');
+        setLoading(false);
+        return;
+      }
 
       // Save biometrics to backend
       const { data, error } = await api.saveBiometrics(patientId, {

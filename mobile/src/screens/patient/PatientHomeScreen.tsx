@@ -1,32 +1,185 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { Text, Card, Button, Avatar, Surface, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import api from '../../utils/api';
 
 const { width } = Dimensions.get('window');
+const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default function PatientHomeScreen() {
   const navigation = useNavigation();
   const [userName, setUserName] = useState('Patient');
+  const [biometrics, setBiometrics] = useState<any>(null);
+  const [recentCompletedTriage, setRecentCompletedTriage] = useState<any>(null);
 
   useEffect(() => {
     loadUserName();
   }, []);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      checkBiometricsAndRedirect();
+      checkRecentCompletedTriage();
+    }, [])
+  );
+
+  const isWithinLast7Days = (completedAt: string): boolean => {
+    const completedDate = new Date(completedAt);
+    if (Number.isNaN(completedDate.getTime())) return false;
+
+    const now = Date.now();
+    const completedTime = completedDate.getTime();
+    return completedTime <= now && now - completedTime <= SEVEN_DAYS_IN_MS;
+  };
+
+  const checkRecentCompletedTriage = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) {
+        setRecentCompletedTriage(null);
+        return;
+      }
+
+      const patientResponse = await api.getPatient(userId);
+      const triageData = patientResponse.data?.triageData;
+      const insights = patientResponse.data?.insights;
+      const completedAt = triageData?.completedAt;
+
+      if (triageData && insights && completedAt && isWithinLast7Days(completedAt)) {
+        setRecentCompletedTriage({ triageData, insights });
+        return;
+      }
+
+      setRecentCompletedTriage(null);
+    } catch (error) {
+      console.error('Error checking recent triage status:', error);
+      setRecentCompletedTriage(null);
+    }
+  };
+
+  const handleRejoinConsultation = async () => {
+    if (!recentCompletedTriage) return;
+
+    let roomName: string | undefined;
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (userId) {
+        const callsResponse = await api.getActiveCalls();
+        const existingCall = callsResponse.data?.find(
+          (call: any) =>
+            call.patientId === userId &&
+            (call.status === 'waiting' || call.status === 'active')
+        );
+        roomName = existingCall?.roomName;
+      }
+    } catch (error) {
+      console.error('Error finding existing room for rejoin:', error);
+    }
+
+    (navigation as any).navigate('WaitingRoom', {
+      triageData: recentCompletedTriage.triageData,
+      insights: recentCompletedTriage.insights,
+      roomName,
+    });
+  };
+
   const loadUserName = async () => {
     try {
-      const name = await AsyncStorage.getItem('userName');
-      if (name) {
-        setUserName(name);
+      const nameFromStorage = await AsyncStorage.getItem('userName');
+      if (nameFromStorage?.trim()) {
+        const firstName = nameFromStorage.trim().split(/\s+/)[0];
+        setUserName(firstName || 'Patient');
+        return;
+      }
+
+      // Backward-compatible fallback for users created before userName was persisted
+      const userId = await AsyncStorage.getItem('userId');
+      if (userId) {
+        const patientResponse = await api.getPatient(userId);
+        const backendName = patientResponse.data?.profile?.name;
+        if (backendName?.trim()) {
+          const firstName = backendName.trim().split(/\s+/)[0];
+          setUserName(firstName || 'Patient');
+          await AsyncStorage.setItem('userName', backendName.trim());
+          return;
+        }
+      }
+
+      // Last-resort fallback to avoid generic "Patient" when email exists
+      const userEmail = await AsyncStorage.getItem('userEmail');
+      if (userEmail?.trim()) {
+        const localPart = userEmail.split('@')[0]?.trim();
+        if (localPart) {
+          const fallbackName = localPart.charAt(0).toUpperCase() + localPart.slice(1);
+          setUserName(fallbackName);
+          await AsyncStorage.setItem('userName', fallbackName);
+        }
       }
     } catch (error) {
       console.error('Error loading user name:', error);
     }
+  };
+
+  const hasBiometricData = (data: any): boolean => {
+    if (!data || typeof data !== 'object') return false;
+    const biometricKeys = [
+      'bloodPressureSystolic',
+      'bloodPressureDiastolic',
+      'heartRate',
+      'temperature',
+      'weight',
+      'height',
+      'respiratoryRate',
+      'painLevel',
+      'bloodOxygen',
+      'bloodSugar',
+    ];
+
+    return biometricKeys.some((key) => {
+      const value = data[key];
+      return value !== undefined && value !== null && String(value).trim() !== '';
+    });
+  };
+
+  const checkBiometricsAndRedirect = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) return;
+
+      const response = await api.getBiometrics(userId);
+      const latestBiometrics = response.data;
+
+      if (response.error || !hasBiometricData(latestBiometrics)) {
+        setBiometrics(null);
+        Alert.alert(
+          'Biometrics Needed',
+          'Please log your biometrics before starting a consultation.',
+          [{ text: 'Log Biometrics', onPress: () => navigation.navigate('BiometricEntry' as never) }]
+        );
+        return;
+      }
+
+      setBiometrics(latestBiometrics);
+    } catch (error) {
+      console.error('Error checking biometrics:', error);
+    }
+  };
+
+  const getMetricValue = (key: string, fallback = 'N/A') => {
+    const value = biometrics?.[key];
+    if (value === undefined || value === null || String(value).trim() === '') return fallback;
+    return String(value);
+  };
+
+  const getBiometricTimestamp = () => {
+    if (!biometrics?.timestamp) return 'No data';
+    return new Date(biometrics.timestamp).toLocaleString();
   };
 
   return (
@@ -72,35 +225,74 @@ export default function PatientHomeScreen() {
               onPress={() => navigation.navigate('BiometricEntry' as never)}
             />
           </View>
+          {recentCompletedTriage && (
+            <Button
+              mode="contained"
+              icon="play-circle"
+              onPress={handleRejoinConsultation}
+              style={styles.continueButton}
+              contentStyle={styles.continueButtonContent}
+            >
+              Rejoin Consultation
+            </Button>
+          )}
         </View>
 
         {/* Health Status Cards */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your Health Status</Text>
-          <HealthMetricCard
-            icon="heart"
-            label="Heart Rate"
-            value="72"
-            unit="BPM"
-            status="normal"
-            timestamp="2 hours ago"
-          />
-          <HealthMetricCard
-            icon="thermometer"
-            label="Temperature"
-            value="98.6"
-            unit="°F"
-            status="normal"
-            timestamp="Today"
-          />
-          <HealthMetricCard
-            icon="blood-bag"
-            label="Blood Pressure"
-            value="120/80"
-            unit="mmHg"
-            status="normal"
-            timestamp="Yesterday"
-          />
+          {biometrics ? (
+            <>
+              <HealthMetricCard
+                icon="heart"
+                label="Heart Rate"
+                value={getMetricValue('heartRate')}
+                unit="BPM"
+                status="logged"
+                timestamp={getBiometricTimestamp()}
+              />
+              <HealthMetricCard
+                icon="thermometer"
+                label="Temperature"
+                value={getMetricValue('temperature')}
+                unit={`°${getMetricValue('temperatureUnit', 'F')}`}
+                status="logged"
+                timestamp={getBiometricTimestamp()}
+              />
+              <HealthMetricCard
+                icon="blood-bag"
+                label="Blood Pressure"
+                value={`${getMetricValue('bloodPressureSystolic')}/${getMetricValue('bloodPressureDiastolic')}`}
+                unit="mmHg"
+                status="logged"
+                timestamp={getBiometricTimestamp()}
+              />
+            </>
+          ) : (
+            <Card style={[styles.consultationCard, shadows.small]}>
+              <Card.Content>
+                <View style={styles.emptyStateContent}>
+                  <MaterialCommunityIcons
+                    name="heart-pulse"
+                    size={48}
+                    color={theme.colors.onSurfaceVariant}
+                    style={styles.emptyIcon}
+                  />
+                  <Text style={styles.emptyTitle}>No Biometrics Logged</Text>
+                  <Text style={styles.emptySubtext}>
+                    Add your biometric data to personalize triage and doctor insights.
+                  </Text>
+                  <Button
+                    mode="contained"
+                    onPress={() => navigation.navigate('BiometricEntry' as never)}
+                    style={styles.emptyActionButton}
+                  >
+                    Log Biometrics
+                  </Button>
+                </View>
+              </Card.Content>
+            </Card>
+          )}
         </View>
 
         {/* Recent Consultations */}
@@ -273,6 +465,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
   },
+  continueButton: {
+    marginTop: spacing.md,
+    borderRadius: theme.roundness,
+  },
+  continueButtonContent: {
+    height: 48,
+  },
   quickActionCard: {
     flex: 1,
   },
@@ -408,7 +607,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.lg,
-    bottom: spacing.xl + 70, // Account for tab bar
+    bottom: spacing.md + 56, // Keep just above the bottom tab bar
     backgroundColor: theme.colors.primary,
   },
   emptyStateContent: {

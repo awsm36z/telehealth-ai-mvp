@@ -1,18 +1,54 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, Button, List, Avatar, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing } from '../../theme';
 
 export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void }) {
+  const [userName, setUserName] = useState('Doctor');
+  const [userEmail, setUserEmail] = useState('doctor@email.com');
+
+  useEffect(() => {
+    loadProfileData();
+  }, []);
+
+  const loadProfileData = async () => {
+    try {
+      const [storedName, storedEmail] = await Promise.all([
+        AsyncStorage.getItem('userName'),
+        AsyncStorage.getItem('userEmail'),
+      ]);
+
+      if (storedName?.trim()) {
+        setUserName(storedName.trim());
+      }
+
+      if (storedEmail?.trim()) {
+        setUserEmail(storedEmail.trim());
+      }
+    } catch (error) {
+      console.error('Error loading doctor profile data:', error);
+    }
+  };
+
+  const avatarLabel = userName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'D';
+
+  const specialty = userEmail.toLowerCase().includes('pediatric') ? 'Pediatrician' : 'Primary Care Physician';
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.profileHeader}>
-          <Avatar.Text size={80} label="DM" />
-          <Text style={styles.name}>Dr. Martinez</Text>
-          <Text style={styles.email}>dr.martinez@hospital.com</Text>
-          <Text style={styles.specialty}>Primary Care Physician</Text>
+          <Avatar.Text size={80} label={avatarLabel} />
+          <Text style={styles.name}>{userName}</Text>
+          <Text style={styles.email}>{userEmail}</Text>
+          <Text style={styles.specialty}>{specialty}</Text>
         </View>
 
         <Divider style={styles.divider} />
