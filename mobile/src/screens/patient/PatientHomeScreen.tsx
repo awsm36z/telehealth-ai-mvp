@@ -63,12 +63,29 @@ export default function PatientHomeScreen() {
     }
   };
 
-  const handleRejoinConsultation = () => {
+  const handleRejoinConsultation = async () => {
     if (!recentCompletedTriage) return;
+
+    let roomName: string | undefined;
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (userId) {
+        const callsResponse = await api.getActiveCalls();
+        const existingCall = callsResponse.data?.find(
+          (call: any) =>
+            call.patientId === userId &&
+            (call.status === 'waiting' || call.status === 'active')
+        );
+        roomName = existingCall?.roomName;
+      }
+    } catch (error) {
+      console.error('Error finding existing room for rejoin:', error);
+    }
 
     (navigation as any).navigate('WaitingRoom', {
       triageData: recentCompletedTriage.triageData,
       insights: recentCompletedTriage.insights,
+      roomName,
     });
   };
 

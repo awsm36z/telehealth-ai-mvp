@@ -352,18 +352,34 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
           <Button
             mode="contained"
             onPress={async () => {
-              // Generate a unique room name for this consultation
-              const roomName = `consultation-${patientId}-${Date.now()}`;
-              
-              // Navigate to video call with all required data
-              navigation.navigate('DoctorVideoCall', {
-                roomName,
-                patientId,
-                patientName: patient?.name || 'Unknown Patient',
-                insights,
-                biometrics,
-                triageTranscript: triageData,
-              });
+              try {
+                const callsResponse = await api.getActiveCalls();
+                const existingCall = callsResponse.data?.find(
+                  (call: any) =>
+                    call.patientId === patientId &&
+                    (call.status === 'waiting' || call.status === 'active')
+                );
+
+                if (!existingCall?.roomName) {
+                  Alert.alert(
+                    'No Active Call',
+                    'This patient does not have an active waiting room. Ask the patient to start/rejoin consultation first.'
+                  );
+                  return;
+                }
+
+                navigation.navigate('DoctorVideoCall', {
+                  roomName: existingCall.roomName,
+                  patientId,
+                  patientName: patient?.name || 'Unknown Patient',
+                  insights,
+                  biometrics,
+                  triageTranscript: triageData,
+                });
+              } catch (error) {
+                console.error('Failed to fetch active call:', error);
+                Alert.alert('Error', 'Unable to load active call information.');
+              }
             }}
             style={styles.button}
             icon="video"

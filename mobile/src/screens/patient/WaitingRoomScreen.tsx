@@ -9,7 +9,7 @@ import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
 export default function WaitingRoomScreen({ route, navigation }: any) {
-  const { triageData, insights } = route.params || {};
+  const { triageData, insights, roomName: existingRoomName } = route.params || {};
 
   const [waitTime, setWaitTime] = useState(0);
   const [roomName, setRoomName] = useState<string | null>(null);
@@ -61,6 +61,13 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
         return;
       }
       setPatientId(userId);
+
+      if (existingRoomName) {
+        setRoomName(existingRoomName);
+        setStatus('waiting');
+        return;
+      }
+
       await createRoom(userId);
     } catch (error) {
       console.error('Initialize room error:', error);
