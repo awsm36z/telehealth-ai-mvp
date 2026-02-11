@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, Button, List, Avatar, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -53,23 +53,27 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
         <List.Section>
           <List.Item
             title="Medical History"
+            description="View your past consultations"
             left={(props) => <List.Icon {...props} icon="clipboard-text" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Medical History', 'Your medical history from consultations will be displayed here in a future update.')}
           />
           <List.Item
             title="Medications"
+            description="Track your current medications"
             left={(props) => <List.Icon {...props} icon="pill" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Medications', 'Medication tracking will be available in a future update.')}
           />
           <List.Item
             title="Allergies"
+            description="Manage your allergy information"
             left={(props) => <List.Icon {...props} icon="alert-circle" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Allergies', 'Allergy management will be available in a future update.')}
           />
           <List.Item
             title="Settings"
+            description="App preferences and notifications"
             left={(props) => <List.Icon {...props} icon="cog" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Settings', 'App settings will be available in a future update.')}
           />
         </List.Section>
 

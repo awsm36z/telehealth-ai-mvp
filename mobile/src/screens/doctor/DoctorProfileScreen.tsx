@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, Button, List, Avatar, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -58,18 +58,19 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
             title="Availability"
             description="Set your consultation hours"
             left={(props) => <List.Icon {...props} icon="calendar-clock" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Availability', 'Availability scheduling will be available in a future update.')}
           />
           <List.Item
             title="Credentials"
             description="License #12345"
             left={(props) => <List.Icon {...props} icon="certificate" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Credentials', 'Credential management will be available in a future update.')}
           />
           <List.Item
             title="Settings"
+            description="App preferences and notifications"
             left={(props) => <List.Icon {...props} icon="cog" />}
-            onPress={() => {}}
+            onPress={() => Alert.alert('Settings', 'App settings will be available in a future update.')}
           />
         </List.Section>
 

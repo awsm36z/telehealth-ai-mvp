@@ -219,6 +219,9 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               if (notesRef.current.trim()) {
                 await saveNotes(notesRef.current);
               }
+              // Record consultation in history
+              const doctorName = await AsyncStorage.getItem('userName');
+              await api.completeConsultation(patientId, roomName, doctorName || 'Doctor');
               await api.endVideoCall(roomName);
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);

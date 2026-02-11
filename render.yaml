@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: telehealth-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_STORE_MODE
+        value: postgres
+      - key: CORS_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DAILY_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: telehealth-postgres
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+
+databases:
+  - name: telehealth-postgres
+    databaseName: telehealth
+    user: telehealth_user

@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import axios from 'axios';
+import { activeCalls } from '../storage';
 
 const router = express.Router();
 
@@ -8,9 +9,6 @@ const DAILY_API_KEY = process.env.DAILY_API_KEY || '';
 const DAILY_API_URL = 'https://api.daily.co/v1';
 
 console.log('🎥 Daily.co API Key loaded:', DAILY_API_KEY ? `${DAILY_API_KEY.substring(0, 20)}...` : 'NOT FOUND');
-
-// In-memory storage for active calls (replace with database)
-const activeCalls: Record<string, any> = {};
 
 /**
  * POST /api/video/create-room

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { Text, Card, Button, Avatar, Surface, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,17 +17,32 @@ export default function PatientHomeScreen() {
   const [userName, setUserName] = useState('Patient');
   const [biometrics, setBiometrics] = useState<any>(null);
   const [recentCompletedTriage, setRecentCompletedTriage] = useState<any>(null);
+  const [recentConsultations, setRecentConsultations] = useState<any[]>([]);
 
   useEffect(() => {
     loadUserName();
   }, []);
 
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       checkBiometricsAndRedirect();
       checkRecentCompletedTriage();
+      loadRecentConsultations();
     }, [])
   );
+
+  const loadRecentConsultations = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) return;
+      const response = await api.getConsultationHistory(userId);
+      if (response.data && Array.isArray(response.data)) {
+        setRecentConsultations(response.data.slice(-3).reverse());
+      }
+    } catch (error) {
+      console.error('Error loading consultations:', error);
+    }
+  };
 
   const isWithinLast7Days = (completedAt: string): boolean => {
     const completedDate = new Date(completedAt);
@@ -303,29 +318,58 @@ export default function PatientHomeScreen() {
               View All
             </Button>
           </View>
-          <Card style={[styles.consultationCard, shadows.small]}>
-            <Card.Content>
-              <View style={styles.emptyStateContent}>
-                <MaterialCommunityIcons
-                  name="history"
-                  size={48}
-                  color={theme.colors.onSurfaceVariant}
-                  style={styles.emptyIcon}
-                />
-                <Text style={styles.emptyTitle}>No Consultations Yet</Text>
-                <Text style={styles.emptySubtext}>
-                  Start a consultation to get diagnosed by our AI and doctors
-                </Text>
-                <Button
-                  mode="contained"
-                  onPress={() => navigation.navigate('TriageFlow' as never)}
-                  style={styles.emptyActionButton}
-                >
-                  Start First Consultation
-                </Button>
-              </View>
-            </Card.Content>
-          </Card>
+          {recentConsultations.length > 0 ? (
+            recentConsultations.map((consultation: any) => (
+              <Card key={consultation.id} style={[styles.consultationCard, shadows.small]}>
+                <Card.Content style={styles.consultationContent}>
+                  <View style={styles.consultationLeft}>
+                    <Avatar.Text
+                      size={48}
+                      label={consultation.doctorName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'Dr'}
+                    />
+                    <View style={styles.consultationInfo}>
+                      <Text style={styles.consultationDoctor}>{consultation.doctorName || 'Doctor'}</Text>
+                      <Text style={styles.consultationDate}>
+                        {new Date(consultation.completedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.consultationRight}>
+                    <Text style={styles.consultationDiagnosis} numberOfLines={1}>
+                      {consultation.summary || 'Consultation'}
+                    </Text>
+                    <View style={styles.consultationStatusBadge}>
+                      <Text style={styles.consultationStatus}>Completed</Text>
+                    </View>
+                  </View>
+                </Card.Content>
+              </Card>
+            ))
+          ) : (
+            <Card style={[styles.consultationCard, shadows.small]}>
+              <Card.Content>
+                <View style={styles.emptyStateContent}>
+                  <MaterialCommunityIcons
+                    name="history"
+                    size={48}
+                    color={theme.colors.onSurfaceVariant}
+                    style={styles.emptyIcon}
+                  />
+                  <Text style={styles.emptyTitle}>No Consultations Yet</Text>
+                  <Text style={styles.emptySubtext}>
+                    Start a consultation to get diagnosed by our AI and doctors
+                  </Text>
+                  <Button
+                    mode="contained"
+                    onPress={() => navigation.navigate('TriageFlow' as never)}
+                    style={styles.emptyActionButton}
+                  >
+                    Start First Consultation
+                  </Button>
+                </View>
+              </Card.Content>
+            </Card>
+          )}
         </View>
 
         <View style={{ height: 100 }} />
@@ -607,7 +651,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.lg,
-    bottom: spacing.md + 56, // Keep just above the bottom tab bar
+    bottom: spacing.lg,
     backgroundColor: theme.colors.primary,
   },
   emptyStateContent: {

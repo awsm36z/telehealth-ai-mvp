@@ -1,22 +1,18 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// API Configuration
-// Change this based on your environment:
-// - iOS Simulator: http://localhost:3000
-// - Android Emulator: http://10.0.2.2:3000
-// - Physical Device: http://YOUR_COMPUTER_IP:3000 (e.g., http://192.168.1.5:3000)
+const DEFAULT_LOCAL_BASE_URL = Platform.OS === 'android'
+  ? 'http://10.0.2.2:3000/api'
+  : 'http://localhost:3000/api';
+
+const ENV_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
 
 const getBaseURL = () => {
-  // Automatically detect the right URL based on platform
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:3000/api'; // Android emulator
-  } else {
-    return 'http://localhost:3000/api'; // iOS simulator or web
+  if (ENV_BASE_URL) {
+    return ENV_BASE_URL.replace(/\/$/, '');
   }
 
-  // For physical devices, uncomment and set your computer's IP:
-  // return 'http://192.168.1.5:3000/api';
+  return DEFAULT_LOCAL_BASE_URL;
 };
 
 const API_URL = getBaseURL();
@@ -143,7 +139,6 @@ const api = {
       if (!response.ok) {
         console.error('❌ Triage error:', data);
 
-        // Provide more specific error messages
         if (response.status === 500) {
           return {
             data: null,
@@ -162,7 +157,6 @@ const api = {
     } catch (error: any) {
       console.error('❌ Triage error:', error.message);
 
-      // Provide more specific error messages
       if (error.message.includes('Network request failed') || error.name === 'AbortError') {
         return {
           data: null,
@@ -302,7 +296,7 @@ const api = {
       return {
         data: null,
         error: error.message || 'Failed to get patient data',
-        };
+      };
     }
   },
 
@@ -382,6 +376,57 @@ const api = {
       return {
         data: null,
         error: error.message || 'Failed to save notes',
+      };
+    }
+  },
+
+  completeConsultation: async (patientId: string, roomName?: string, doctorName?: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/consultations/${patientId}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ roomName, doctorName }),
+      }, 30000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to complete consultation',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Complete consultation error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to complete consultation',
+      };
+    }
+  },
+
+  getConsultationHistory: async (patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/consultations/${patientId}/history`, {
+        method: 'GET',
+      }, 30000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Failed to get consultation history',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get consultation history error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to get consultation history',
       };
     }
   },
@@ -471,9 +516,8 @@ const api = {
       await fetchWithTimeout(`${API_URL}/analytics/track`, {
         method: 'POST',
         body: JSON.stringify({ event, properties }),
-      }, 5000); // Short timeout - analytics shouldn't block UI
+      }, 5000);
     } catch (error) {
-      // Silently fail - analytics should never break the app
       console.log('Analytics tracking failed (non-critical):', event);
     }
   },

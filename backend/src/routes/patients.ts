@@ -88,9 +88,9 @@ router.get('/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const profile = patientProfiles[id];
-    const biometrics = patientBiometrics[id];
-    const insights = patientInsights[id];
-    const triageData = patientTriageData[id];
+    const biometrics = patientBiometrics[id] ?? null;
+    const insights = patientInsights[id] ?? null;
+    const triageData = patientTriageData[id] ?? null;
 
     if (!profile) {
       return res.status(404).json({ message: 'Patient not found' });
@@ -100,6 +100,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       profile,
       biometrics,
       insights,
+      chatTranscript: triageData?.messages || null,
       triageData,
     });
   } catch (error: any) {

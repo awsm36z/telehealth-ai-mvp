@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { analyticsEvents, analyticsMetrics } from '../storage';
 
 const router = express.Router();
 
@@ -11,21 +12,7 @@ interface AnalyticsEvent {
   userId?: string;
 }
 
-const analyticsEvents: AnalyticsEvent[] = [];
-
-// Aggregate metrics
-const metrics = {
-  triageStarted: 0,
-  triageCompleted: 0,
-  triageAbandoned: 0,
-  emergencyDetected: 0,
-  videoCallsStarted: 0,
-  videoCallsCompleted: 0,
-  avgTriageDurationMs: 0,
-  totalTriageDurationMs: 0,
-  aiAssistQueries: 0,
-  registrations: 0,
-};
+const metrics = analyticsMetrics;
 
 /**
  * POST /api/analytics/track

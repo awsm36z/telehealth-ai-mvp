@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { consultationNotes } from '../storage';
+import { consultationNotes, consultationHistory, patientInsights, patientTriageData } from '../storage';
 
 const router = express.Router();
 
@@ -51,6 +51,56 @@ router.get('/:patientId/notes', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get notes error:', error);
     res.status(500).json({ message: 'Failed to retrieve notes', error: error.message });
+  }
+});
+
+/**
+ * POST /api/consultations/:patientId/complete
+ * Record a completed consultation in history
+ */
+router.post('/:patientId/complete', async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    const { roomName, doctorName } = req.body;
+
+    const notes = consultationNotes[patientId]?.notes || '';
+    const insights = patientInsights[patientId] || null;
+    const triageData = patientTriageData[patientId] || null;
+
+    const consultation = {
+      id: `consultation-${Date.now()}`,
+      patientId,
+      roomName,
+      doctorName: doctorName || 'Doctor',
+      notes,
+      summary: insights?.summary || triageData?.chiefComplaint || 'General consultation',
+      completedAt: new Date().toISOString(),
+    };
+
+    if (!consultationHistory[patientId]) {
+      consultationHistory[patientId] = [];
+    }
+    consultationHistory[patientId].push(consultation);
+
+    res.json({ message: 'Consultation recorded', data: consultation });
+  } catch (error: any) {
+    console.error('Complete consultation error:', error);
+    res.status(500).json({ message: 'Failed to record consultation', error: error.message });
+  }
+});
+
+/**
+ * GET /api/consultations/:patientId/history
+ * Get consultation history for a patient
+ */
+router.get('/:patientId/history', async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    const history = consultationHistory[patientId] || [];
+    res.json(history);
+  } catch (error: any) {
+    console.error('Get history error:', error);
+    res.status(500).json({ message: 'Failed to retrieve history', error: error.message });
   }
 });
 

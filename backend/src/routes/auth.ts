@@ -2,13 +2,10 @@ import express, { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
-import { patientProfiles } from '../storage';
+import { patientProfiles, users } from '../storage';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-
-// In-memory user store (replace with database in production)
-const users: any[] = [];
 
 /**
  * POST /api/auth/register
@@ -17,10 +14,15 @@ const users: any[] = [];
 router.post(
   '/register',
   [
-    body('fullName').notEmpty().withMessage('Full name is required'),
+    body().custom((value) => {
+      const fullName = value?.fullName || value?.name;
+      if (!fullName || typeof fullName !== 'string' || fullName.trim().length === 0) {
+        throw new Error('Full name is required');
+      }
+      return true;
+    }),
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-    body('phone').notEmpty().withMessage('Phone number is required'),
     body('userType').isIn(['patient', 'doctor']).withMessage('User type must be patient or doctor'),
   ],
   async (req: Request, res: Response) => {
@@ -30,7 +32,9 @@ router.post(
     }
 
     try {
-      const { fullName, email, password, phone, userType, dateOfBirth, licenseNumber } = req.body;
+      const { email, password, userType, dateOfBirth, licenseNumber } = req.body;
+      const fullName = req.body.fullName || req.body.name;
+      const phone = req.body.phone || null;
 
       // Check if user exists
       const existingUser = users.find((u) => u.email === email);

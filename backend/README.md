@@ -18,7 +18,18 @@ NODE_ENV=development
 PORT=3000
 JWT_SECRET=your-secret-key
 OPENAI_API_KEY=sk-your-openai-key
+DATA_STORE_MODE=memory
+# DATABASE_URL=postgresql://...
+# DATABASE_SSL=false
+# CORS_ORIGIN=http://localhost:8081
 ```
+
+### Storage Modes
+
+- `DATA_STORE_MODE=memory` (default): in-process storage, resets on restart.
+- `DATA_STORE_MODE=postgres`: persisted storage via PostgreSQL (`DATABASE_URL` required).
+
+When `postgres` mode is enabled, the backend creates and uses an `app_state` table automatically.
 
 ## API Endpoints
 
@@ -57,12 +68,31 @@ src/
 
 ## Production Deployment
 
-1. Set up PostgreSQL database
-2. Replace in-memory storage with database queries
-3. Add proper error handling and logging
-4. Implement rate limiting
-5. Set up HTTPS
-6. Configure CORS for production domain
+### Render (Recommended)
+
+1. Use repo root `render.yaml` to create:
+   - `telehealth-backend` web service
+   - `telehealth-postgres` managed database
+2. Set required secrets in Render dashboard:
+   - `JWT_SECRET`
+   - `OPENAI_API_KEY`
+   - `CORS_ORIGIN`
+   - optional `DAILY_API_KEY`, `SENTRY_DSN`
+3. Ensure runtime env:
+   - `DATA_STORE_MODE=postgres`
+   - `DATABASE_SSL=true`
+4. Deploy and verify:
+   - `GET /health` returns `status: ok`
+   - core API routes operate and data survives restarts
+
+### Mobile app API URL
+
+Set `EXPO_PUBLIC_API_BASE_URL` in mobile env to your deployed backend URL + `/api`.
+Example:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://telehealth-backend.onrender.com/api
+```
 
 ## Security Notes
 

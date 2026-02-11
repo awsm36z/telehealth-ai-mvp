@@ -95,6 +95,22 @@ function detectEmergency(message: string): boolean {
   return EMERGENCY_KEYWORDS.some(keyword => lower.includes(keyword));
 }
 
+function isValidMessageArray(messages: any): boolean {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return false;
+  }
+
+  return messages.every(
+    (message) =>
+      message &&
+      typeof message === 'object' &&
+      typeof message.role === 'string' &&
+      ['user', 'assistant', 'ai', 'system'].includes(message.role) &&
+      typeof message.content === 'string' &&
+      message.content.trim().length > 0
+  );
+}
+
 /**
  * POST /api/triage/chat
  * Continue triage conversation with LLM
@@ -105,6 +121,10 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     if (!messages || messages.length === 0) {
       return res.status(400).json({ message: 'Messages are required' });
+    }
+
+    if (!isValidMessageArray(messages)) {
+      return res.status(400).json({ message: 'Invalid message format' });
     }
 
     // Check if this is an initial greeting request
@@ -278,7 +298,7 @@ Generate the next triage question or conclude if sufficient information is gathe
       messages: [
         { role: 'system', content: systemPrompt },
         ...messages.map((m: any) => ({
-          role: m.role === 'ai' ? 'assistant' : 'user',
+          role: m.role === 'ai' || m.role === 'assistant' ? 'assistant' : 'user',
           content: m.content,
         })),
       ],
@@ -365,6 +385,33 @@ Generate the next triage question or conclude if sufficient information is gathe
     console.error('Triage chat error:', error);
     res.status(500).json({
       message: 'Failed to process triage request',
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/triage/insights
+ * Generate AI insights from triage conversation
+ */
+router.post('/insights', async (req: Request, res: Response) => {
+  try {
+    const { messages } = req.body;
+
+    if (!messages || messages.length === 0) {
+      return res.status(400).json({ message: 'Messages are required' });
+    }
+
+    if (!isValidMessageArray(messages)) {
+      return res.status(400).json({ message: 'Invalid message format' });
+    }
+
+    const insights = await generateInsights(messages);
+    res.json(insights);
+  } catch (error: any) {
+    console.error('Generate insights error:', error);
+    res.status(500).json({
+      message: 'Failed to generate insights',
       error: error.message,
     });
   }

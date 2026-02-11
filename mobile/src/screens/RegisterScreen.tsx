@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, HelperText, Checkbox } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -74,8 +74,32 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
     }
   };
 
+  const formatPhoneNumber = (text: string): string => {
+    // Strip all non-digits
+    const digits = text.replace(/\D/g, '');
+    // Format as (XXX) XXX-XXXX
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+  };
+
+  const formatDateOfBirth = (text: string): string => {
+    // Strip all non-digits
+    const digits = text.replace(/\D/g, '');
+    // Format as MM/DD/YYYY
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+  };
+
   const updateField = (field: string, value: string) => {
-    setFormData({ ...formData, [field]: value });
+    let formattedValue = value;
+    if (field === 'phone') {
+      formattedValue = formatPhoneNumber(value);
+    } else if (field === 'dateOfBirth') {
+      formattedValue = formatDateOfBirth(value);
+    }
+    setFormData({ ...formData, [field]: formattedValue });
     // Clear error when user starts typing
     if (errors[field]) {
       setErrors({ ...errors, [field]: undefined });
@@ -145,6 +169,8 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
               onChangeText={(v) => updateField('phone', v)}
               mode="outlined"
               keyboardType="phone-pad"
+              placeholder="(555) 123-4567"
+              maxLength={14}
               left={<TextInput.Icon icon="phone" />}
               style={styles.input}
               error={!!errors.phone}
@@ -160,7 +186,9 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
                   value={formData.dateOfBirth}
                   onChangeText={(v) => updateField('dateOfBirth', v)}
                   mode="outlined"
+                  keyboardType="number-pad"
                   placeholder="01/15/1990"
+                  maxLength={10}
                   left={<TextInput.Icon icon="calendar" />}
                   style={styles.input}
                   error={!!errors.dateOfBirth}
@@ -222,17 +250,26 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
               {errors.confirmPassword}
             </HelperText>
 
-            <View style={styles.checkboxContainer}>
+            <TouchableOpacity
+              style={[
+                styles.checkboxContainer,
+                agreedToTerms && styles.checkboxContainerChecked,
+                !!errors.terms && styles.checkboxContainerError,
+              ]}
+              onPress={() => setAgreedToTerms(!agreedToTerms)}
+              activeOpacity={0.7}
+            >
               <Checkbox
                 status={agreedToTerms ? 'checked' : 'unchecked'}
                 onPress={() => setAgreedToTerms(!agreedToTerms)}
+                color={theme.colors.primary}
               />
               <Text style={styles.checkboxLabel}>
                 I agree to the{' '}
                 <Text style={styles.link}>Terms of Service</Text> and{' '}
                 <Text style={styles.link}>Privacy Policy</Text>
               </Text>
-            </View>
+            </TouchableOpacity>
             <HelperText type="error" visible={!!errors.terms}>
               {errors.terms}
             </HelperText>
@@ -316,11 +353,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.md,
     marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: theme.roundness,
+    borderWidth: 2,
+    borderColor: theme.colors.outline,
+    backgroundColor: theme.colors.surface,
+  },
+  checkboxContainerChecked: {
+    borderColor: theme.colors.primary,
+    backgroundColor: `${theme.colors.primary}08`,
+  },
+  checkboxContainerError: {
+    borderColor: theme.colors.error,
   },
   checkboxLabel: {
     flex: 1,
-    fontSize: 14,
-    color: theme.colors.onSurfaceVariant,
+    fontSize: 15,
+    color: theme.colors.onSurface,
+    fontWeight: '500',
   },
   link: {
     color: theme.colors.primary,
