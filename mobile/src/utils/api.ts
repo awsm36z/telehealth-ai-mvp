@@ -126,7 +126,7 @@ const api = {
   },
 
   // Triage
-  triageChat: async (payload: { messages: any[]; patientId?: string }) => {
+  triageChat: async (payload: { messages: any[]; patientId?: string; biometrics?: any }) => {
     try {
       console.log('📤 Sending triage request to:', `${API_URL}/triage/chat`);
       const response = await fetchWithTimeout(`${API_URL}/triage/chat`, {

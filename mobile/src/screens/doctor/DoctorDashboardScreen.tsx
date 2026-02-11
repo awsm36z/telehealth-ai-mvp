@@ -63,7 +63,11 @@ export default function DoctorDashboardScreen({ navigation }: any) {
 
   const startConsultation = async (patient: any) => {
     // Find active call for this patient
-    const call = activeCalls.find(c => c.patientId === patient.id && c.status === 'waiting');
+    const call = activeCalls.find(
+      (c) =>
+        String(c.patientId) === String(patient.id) &&
+        (c.status === 'waiting' || c.status === 'active')
+    );
 
     if (call) {
       // Fetch real insights, biometrics, and triage transcript from backend
@@ -100,8 +104,24 @@ export default function DoctorDashboardScreen({ navigation }: any) {
     }
   };
 
-  // Mock patient queue data
-  const patientsForDisplay = patients.length > 0 ? patients : [];
+  // Show only patients who currently have an active waiting/active call.
+  const activePatientIds = new Set(
+    activeCalls
+      .filter((call: any) => call.status === 'waiting' || call.status === 'active')
+      .map((call: any) => String(call.patientId))
+  );
+
+  const patientsForDisplay = patients
+    .filter((patient) => activePatientIds.has(String(patient.id)))
+    .filter((patient) => {
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        patient.name.toLowerCase().includes(q) ||
+        patient.chiefComplaint.toLowerCase().includes(q) ||
+        String(patient.id).includes(q)
+      );
+    });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -129,7 +149,12 @@ export default function DoctorDashboardScreen({ navigation }: any) {
 
         {/* Stats */}
         <View style={styles.statsContainer}>
-          <StatCard icon="account-clock" value="3" label="Waiting" color={theme.colors.warning} />
+          <StatCard
+            icon="account-clock"
+            value={String(patientsForDisplay.length)}
+            label="Waiting"
+            color={theme.colors.warning}
+          />
           <StatCard icon="check-circle" value="8" label="Today" color={theme.colors.success} />
           <StatCard icon="clock" value="24m" label="Avg Time" color={theme.colors.info} />
         </View>
@@ -160,9 +185,13 @@ export default function DoctorDashboardScreen({ navigation }: any) {
                 key={patient.id}
                 patient={patient}
                 navigation={navigation}
-                hasActiveCall={activeCalls.some(c => c.patientId === patient.id && c.status === 'waiting')}
-              onStartCall={() => startConsultation(patient)}
-            />
+                hasActiveCall={activeCalls.some(
+                  (c) =>
+                    String(c.patientId) === String(patient.id) &&
+                    (c.status === 'waiting' || c.status === 'active')
+                )}
+                onStartCall={() => startConsultation(patient)}
+              />
             ))
           )}
         </View>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { Text, Card, Button, Avatar, Surface, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +17,7 @@ export default function PatientHomeScreen() {
   const [userName, setUserName] = useState('Patient');
   const [biometrics, setBiometrics] = useState<any>(null);
   const [recentCompletedTriage, setRecentCompletedTriage] = useState<any>(null);
+  const [activeConsultation, setActiveConsultation] = useState<any>(null);
   const [recentConsultations, setRecentConsultations] = useState<any[]>([]);
 
   useEffect(() => {
@@ -25,8 +26,8 @@ export default function PatientHomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      checkBiometricsAndRedirect();
-      checkRecentCompletedTriage();
+      loadBiometrics();
+      refreshConsultationResumeState();
       loadRecentConsultations();
     }, [])
   );
@@ -53,54 +54,80 @@ export default function PatientHomeScreen() {
     return completedTime <= now && now - completedTime <= SEVEN_DAYS_IN_MS;
   };
 
-  const checkRecentCompletedTriage = async () => {
+  const refreshConsultationResumeState = async () => {
     try {
       const userId = await AsyncStorage.getItem('userId');
       if (!userId) {
         setRecentCompletedTriage(null);
+        setActiveConsultation(null);
         return;
       }
 
-      const patientResponse = await api.getPatient(userId);
+      const [patientResponse, callsResponse] = await Promise.all([
+        api.getPatient(userId),
+        api.getActiveCalls(),
+      ]);
+
       const triageData = patientResponse.data?.triageData;
       const insights = patientResponse.data?.insights;
       const completedAt = triageData?.completedAt;
+      const existingCall = callsResponse.data?.find(
+        (call: any) =>
+          String(call.patientId) === String(userId) &&
+          (call.status === 'waiting' || call.status === 'active')
+      );
 
       if (triageData && insights && completedAt && isWithinLast7Days(completedAt)) {
         setRecentCompletedTriage({ triageData, insights });
-        return;
+      } else {
+        setRecentCompletedTriage(null);
       }
 
-      setRecentCompletedTriage(null);
+      if (existingCall?.roomName) {
+        setActiveConsultation({
+          roomName: existingCall.roomName,
+          status: existingCall.status,
+          triageData: triageData || null,
+          insights: insights || null,
+        });
+      } else {
+        setActiveConsultation(null);
+      }
     } catch (error) {
-      console.error('Error checking recent triage status:', error);
+      console.error('Error checking consultation resume state:', error);
       setRecentCompletedTriage(null);
+      setActiveConsultation(null);
     }
   };
 
   const handleRejoinConsultation = async () => {
-    if (!recentCompletedTriage) return;
+    if (!activeConsultation?.roomName) return;
 
-    let roomName: string | undefined;
-    try {
-      const userId = await AsyncStorage.getItem('userId');
-      if (userId) {
-        const callsResponse = await api.getActiveCalls();
-        const existingCall = callsResponse.data?.find(
-          (call: any) =>
-            call.patientId === userId &&
-            (call.status === 'waiting' || call.status === 'active')
-        );
-        roomName = existingCall?.roomName;
-      }
-    } catch (error) {
-      console.error('Error finding existing room for rejoin:', error);
+    const userId = await AsyncStorage.getItem('userId');
+    if (activeConsultation.status === 'active' && userId) {
+      (navigation as any).navigate('VideoCall', {
+        roomName: activeConsultation.roomName,
+        patientId: userId,
+      });
+      return;
     }
 
     (navigation as any).navigate('WaitingRoom', {
-      triageData: recentCompletedTriage.triageData,
-      insights: recentCompletedTriage.insights,
-      roomName,
+      triageData: activeConsultation.triageData || recentCompletedTriage?.triageData,
+      insights: activeConsultation.insights || recentCompletedTriage?.insights,
+      roomName: activeConsultation.roomName,
+    });
+  };
+
+  const startConsultationFlow = () => {
+    if (activeConsultation?.roomName) {
+      handleRejoinConsultation();
+      return;
+    }
+
+    (navigation as any).navigate('BiometricEntry', {
+      mode: 'consultation_start',
+      nextScreen: 'TriageFlow',
     });
   };
 
@@ -162,7 +189,7 @@ export default function PatientHomeScreen() {
     });
   };
 
-  const checkBiometricsAndRedirect = async () => {
+  const loadBiometrics = async () => {
     try {
       const userId = await AsyncStorage.getItem('userId');
       if (!userId) return;
@@ -172,11 +199,6 @@ export default function PatientHomeScreen() {
 
       if (response.error || !hasBiometricData(latestBiometrics)) {
         setBiometrics(null);
-        Alert.alert(
-          'Biometrics Needed',
-          'Please log your biometrics before starting a consultation.',
-          [{ text: 'Log Biometrics', onPress: () => navigation.navigate('BiometricEntry' as never) }]
-        );
         return;
       }
 
@@ -230,7 +252,7 @@ export default function PatientHomeScreen() {
               title="Start Consultation"
               description="Get diagnosed by AI & doctor"
               color={theme.colors.primary}
-              onPress={() => navigation.navigate('TriageFlow' as never)}
+              onPress={startConsultationFlow}
             />
             <QuickActionCard
               icon="heart-pulse"
@@ -240,7 +262,7 @@ export default function PatientHomeScreen() {
               onPress={() => navigation.navigate('BiometricEntry' as never)}
             />
           </View>
-          {recentCompletedTriage && (
+          {activeConsultation?.roomName && (
             <Button
               mode="contained"
               icon="play-circle"
@@ -248,7 +270,7 @@ export default function PatientHomeScreen() {
               style={styles.continueButton}
               contentStyle={styles.continueButtonContent}
             >
-              Rejoin Consultation
+              {activeConsultation.status === 'active' ? 'Join Consultation' : 'Continue Consultation'}
             </Button>
           )}
         </View>
@@ -361,7 +383,7 @@ export default function PatientHomeScreen() {
                   </Text>
                   <Button
                     mode="contained"
-                    onPress={() => navigation.navigate('TriageFlow' as never)}
+                    onPress={startConsultationFlow}
                     style={styles.emptyActionButton}
                   >
                     Start First Consultation
@@ -380,7 +402,7 @@ export default function PatientHomeScreen() {
         icon="plus"
         label="New Consultation"
         style={styles.fab}
-        onPress={() => navigation.navigate('TriageFlow' as never)}
+        onPress={startConsultationFlow}
       />
     </SafeAreaView>
   );

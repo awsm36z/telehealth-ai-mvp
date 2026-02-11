@@ -24,7 +24,9 @@ interface Message {
   timestamp: Date;
 }
 
-export default function TriageChatScreen({ navigation }: any) {
+export default function TriageChatScreen({ navigation, route }: any) {
+  const startFresh = !!route?.params?.startFresh;
+  const consultationBiometrics = route?.params?.consultationBiometrics || null;
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -43,6 +45,14 @@ export default function TriageChatScreen({ navigation }: any) {
     scrollToBottom();
   }, [messages]);
 
+  const handleBackPress = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('PatientHome');
+  };
+
   const initializeTriage = async () => {
     try {
       const storedUserId = await AsyncStorage.getItem('userId');
@@ -58,7 +68,11 @@ export default function TriageChatScreen({ navigation }: any) {
       }
 
       setPatientId(storedUserId);
-      const restored = await restoreConsultationState(storedUserId);
+      if (startFresh) {
+        await AsyncStorage.removeItem(CONSULTATION_STATE_KEY);
+      }
+
+      const restored = startFresh ? false : await restoreConsultationState(storedUserId);
       if (!restored) {
         await fetchInitialGreeting(storedUserId);
       }
@@ -145,6 +159,7 @@ export default function TriageChatScreen({ navigation }: any) {
       const response = await api.triageChat({
         messages: [{ role: 'user', content: '__INITIAL_GREETING__' }],
         patientId: resolvedPatientId,
+        biometrics: consultationBiometrics || undefined,
       });
 
       if (response.data && !response.error) {
@@ -210,6 +225,7 @@ export default function TriageChatScreen({ navigation }: any) {
       const response = await api.triageChat({
         messages: [...messages, userMessage],
         patientId,
+        biometrics: consultationBiometrics || undefined,
       });
 
       if (response.error) {
@@ -238,9 +254,9 @@ export default function TriageChatScreen({ navigation }: any) {
       if (response.data.complete) {
         api.trackEvent('triage_completed', { questionCount: nextQuestionCount });
         await persistCompletedState(patientId, response.data.triageData, response.data.insights);
-        // Show the final message, then navigate to insights after a delay
+        // Show the final message, then send patient straight to consultation waiting room.
         setTimeout(() => {
-          navigation.navigate('InsightsScreen', {
+          navigation.navigate('WaitingRoom', {
             triageData: response.data.triageData,
             insights: response.data.insights,
           });
@@ -280,10 +296,13 @@ export default function TriageChatScreen({ navigation }: any) {
             icon="arrow-left"
             iconColor="#FFFFFF"
             size={24}
-            onPress={() => navigation.goBack()}
+            onPress={handleBackPress}
           />
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>AI Health Assistant</Text>
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepBadgeText}>2/3</Text>
+            </View>
+            <Text style={styles.headerTitle}>Triage Assessment</Text>
             <Text style={styles.headerSubtitle}>Question {questionCount} of ~10</Text>
           </View>
           <View style={{ width: 40 }} />
@@ -408,6 +427,18 @@ const styles = StyleSheet.create({
   headerCenter: {
     flex: 1,
     alignItems: 'center',
+  },
+  stepBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    marginBottom: spacing.xs,
+  },
+  stepBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   headerTitle: {
     fontSize: 18,

@@ -145,6 +145,9 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
       <View style={styles.content}>
         {/* Top Section */}
         <View style={styles.topSection}>
+          <View style={styles.stepBadge}>
+            <Text style={styles.stepBadgeText}>3/3</Text>
+          </View>
           <Text style={styles.title}>Waiting Room</Text>
           <Text style={styles.subtitle}>
             Your triage is complete. A doctor will be with you shortly.
@@ -240,6 +243,18 @@ const styles = StyleSheet.create({
   topSection: {
     paddingTop: spacing.xl,
     alignItems: 'center',
+  },
+  stepBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    marginBottom: spacing.sm,
+  },
+  stepBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   title: {
     fontSize: 28,

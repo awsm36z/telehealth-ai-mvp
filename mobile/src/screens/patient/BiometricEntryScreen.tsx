@@ -7,7 +7,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
-export default function BiometricEntryScreen({ navigation }: any) {
+export default function BiometricEntryScreen({ navigation, route }: any) {
+  const isConsultationStart = route?.params?.mode === 'consultation_start';
+  const nextScreen = route?.params?.nextScreen || 'TriageFlow';
   const [biometrics, setBiometrics] = useState({
     bloodPressureSystolic: '',
     bloodPressureDiastolic: '',
@@ -19,7 +21,7 @@ export default function BiometricEntryScreen({ navigation }: any) {
     height: '',
     heightUnit: 'cm',
     respiratoryRate: '',
-    painLevel: '0',
+    painLevel: '',
     bloodOxygen: '',
     bloodSugar: '',
     bloodSugarContext: 'fasting',
@@ -28,8 +30,77 @@ export default function BiometricEntryScreen({ navigation }: any) {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    prefillStableBiometrics();
+  }, []);
+
   const updateField = (field: string, value: string) => {
     setBiometrics({ ...biometrics, [field]: value });
+  };
+
+  const prefillStableBiometrics = async () => {
+    try {
+      const patientId = await AsyncStorage.getItem('userId');
+      if (!patientId) return;
+
+      const response = await api.getBiometrics(patientId);
+      const latest = response.data;
+      if (!latest || typeof latest !== 'object') return;
+
+      setBiometrics((prev) => ({
+        ...prev,
+        // Only prefill stable values that usually don't fluctuate rapidly.
+        weight: latest.weight !== undefined && latest.weight !== null ? String(latest.weight) : prev.weight,
+        weightUnit: latest.weightUnit || prev.weightUnit,
+        height: latest.height !== undefined && latest.height !== null ? String(latest.height) : prev.height,
+        heightUnit: latest.heightUnit || prev.heightUnit,
+      }));
+    } catch (error) {
+      console.error('Prefill biometrics error:', error);
+    }
+  };
+
+  const buildBiometricPayload = () => {
+    const payload: Record<string, any> = {};
+    const addIfPresent = (key: string, value: any) => {
+      if (value === undefined || value === null) return;
+      if (typeof value === 'string' && value.trim() === '') return;
+      payload[key] = value;
+    };
+
+    addIfPresent('bloodPressureSystolic', biometrics.bloodPressureSystolic);
+    addIfPresent('bloodPressureDiastolic', biometrics.bloodPressureDiastolic);
+    addIfPresent('heartRate', biometrics.heartRate);
+
+    if (biometrics.temperature.trim() !== '') {
+      addIfPresent('temperature', biometrics.temperature);
+      addIfPresent('temperatureUnit', biometrics.temperatureUnit);
+    }
+
+    if (biometrics.weight.trim() !== '') {
+      addIfPresent('weight', biometrics.weight);
+      addIfPresent('weightUnit', biometrics.weightUnit);
+    }
+
+    if (biometrics.height.trim() !== '') {
+      addIfPresent('height', biometrics.height);
+      addIfPresent('heightUnit', biometrics.heightUnit);
+    }
+
+    addIfPresent('respiratoryRate', biometrics.respiratoryRate);
+    addIfPresent('painLevel', biometrics.painLevel);
+    addIfPresent('bloodOxygen', biometrics.bloodOxygen);
+
+    if (biometrics.bloodSugar.trim() !== '') {
+      addIfPresent('bloodSugar', biometrics.bloodSugar);
+      addIfPresent('bloodSugarContext', biometrics.bloodSugarContext);
+    }
+
+    if (notes.trim()) {
+      addIfPresent('notes', notes.trim());
+    }
+
+    return payload;
   };
 
   const handleSave = async () => {
@@ -42,25 +113,40 @@ export default function BiometricEntryScreen({ navigation }: any) {
         return;
       }
 
-      // Save biometrics to backend
-      const { data, error } = await api.saveBiometrics(patientId, {
-        ...biometrics,
-        notes,
-      });
+      const payload = buildBiometricPayload();
+      const hasPayload = Object.keys(payload).length > 0;
+      let nextBiometrics: any = hasPayload ? payload : null;
 
-      if (error) {
-        Alert.alert('Error', error);
+      if (hasPayload) {
+        // Save biometrics to backend
+        const { data, error } = await api.saveBiometrics(patientId, payload);
+
+        if (error) {
+          if (!isConsultationStart) {
+            Alert.alert('Error', error);
+            setLoading(false);
+            return;
+          }
+          console.warn('Proceeding to triage without persisted biometrics:', error);
+        } else {
+          nextBiometrics = data?.data || data || payload;
+          console.log('✅ Biometrics saved:', data);
+        }
+      } else if (!isConsultationStart) {
+        Alert.alert('No Data', 'Enter at least one biometric value to save.');
         setLoading(false);
         return;
       }
 
-      console.log('✅ Biometrics saved:', data);
-      Alert.alert('Success', 'Biometrics saved successfully!', [
-        {
-          text: 'OK',
-          onPress: () => navigation.goBack(),
-        },
-      ]);
+      if (isConsultationStart) {
+        navigation.navigate(nextScreen, {
+          consultationBiometrics: nextBiometrics,
+          startFresh: true,
+        });
+        return;
+      }
+
+      Alert.alert('Success', 'Biometrics saved successfully!', [{ text: 'OK', onPress: () => navigation.goBack() }]);
     } catch (error: any) {
       console.error('Save error:', error);
       Alert.alert('Error', 'Failed to save biometrics');
@@ -77,7 +163,19 @@ export default function BiometricEntryScreen({ navigation }: any) {
           size={24}
           onPress={() => navigation.goBack()}
         />
-        <Text style={styles.headerTitle}>Log Biometrics</Text>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Log Biometrics</Text>
+          {isConsultationStart && (
+            <>
+              <Text style={styles.headerSubtitle}>
+                Your doctor is on their way! While you wait, please fill out this pre-consultation assessment.
+              </Text>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>1/3</Text>
+              </View>
+            </>
+          )}
+        </View>
         <View style={{ width: 40 }} />
       </View>
 
@@ -246,7 +344,7 @@ export default function BiometricEntryScreen({ navigation }: any) {
           >
             <View style={styles.painLevelContainer}>
               <Text style={styles.painLevelValue}>
-                {biometrics.painLevel}/10 - {getPainDescription(biometrics.painLevel)}
+                {biometrics.painLevel === '' ? 'Not set' : `${biometrics.painLevel}/10 - ${getPainDescription(biometrics.painLevel)}`}
               </Text>
               <View style={styles.painLevelButtons}>
                 {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((level) => (
@@ -340,7 +438,7 @@ export default function BiometricEntryScreen({ navigation }: any) {
             loading={loading}
             disabled={loading}
           >
-            {loading ? 'Saving...' : 'Save Biometrics'}
+            {loading ? 'Saving...' : isConsultationStart ? 'Continue to Triage' : 'Save Biometrics'}
           </Button>
 
           <View style={{ height: spacing.xl }} />
@@ -400,6 +498,31 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: theme.colors.onSurface,
+    textAlign: 'center',
+  },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  headerSubtitle: {
+    marginTop: spacing.xs,
+    fontSize: 12,
+    lineHeight: 16,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  stepBadge: {
+    marginTop: spacing.xs,
+    backgroundColor: `${theme.colors.primary}18`,
+    borderRadius: theme.roundness * 2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  stepBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.primary,
   },
   keyboardView: {
     flex: 1,

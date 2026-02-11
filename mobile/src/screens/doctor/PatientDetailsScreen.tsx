@@ -356,7 +356,7 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
                 const callsResponse = await api.getActiveCalls();
                 const existingCall = callsResponse.data?.find(
                   (call: any) =>
-                    call.patientId === patientId &&
+                    String(call.patientId) === String(patientId) &&
                     (call.status === 'waiting' || call.status === 'active')
                 );
 
