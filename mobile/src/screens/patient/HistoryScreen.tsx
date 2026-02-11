@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text, Card, Avatar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
@@ -14,9 +14,17 @@ interface Consultation {
   summary: string;
   completedAt: string;
   notes?: string;
+  doctorNotes?: string;
+  chiefComplaint?: string;
+  urgency?: string;
+  recommendation?: string;
+  nextSteps?: string[];
+  possibleConditions?: string[];
+  triageTranscript?: Array<{ role: 'user' | 'ai' | 'assistant'; content: string }>;
 }
 
 export default function HistoryScreen() {
+  const navigation = useNavigation();
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -79,28 +87,42 @@ export default function HistoryScreen() {
           </View>
         ) : (
           consultations.map((consultation) => (
-            <Card key={consultation.id} style={[styles.card, shadows.small]}>
-              <Card.Content style={styles.cardContent}>
-                <View style={styles.cardLeft}>
-                  <Avatar.Text
-                    size={44}
-                    label={consultation.doctorName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                    style={styles.avatar}
-                  />
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.doctorName}>{consultation.doctorName}</Text>
-                    <Text style={styles.date}>{formatDate(consultation.completedAt)}</Text>
-                    <Text style={styles.summary} numberOfLines={2}>
-                      {consultation.summary}
-                    </Text>
+            <TouchableOpacity
+              key={consultation.id}
+              activeOpacity={0.8}
+              onPress={() =>
+                (navigation as any).navigate('ConsultationDetail', { consultation })
+              }
+            >
+              <Card style={[styles.card, shadows.small]}>
+                <Card.Content style={styles.cardContent}>
+                  <View style={styles.cardLeft}>
+                    <Avatar.Text
+                      size={44}
+                      label={(consultation.doctorName || 'Doctor').split(' ').map(n => n[0]).join('').slice(0, 2)}
+                      style={styles.avatar}
+                    />
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.doctorName}>{consultation.doctorName || 'Doctor'}</Text>
+                      <Text style={styles.date}>{formatDate(consultation.completedAt)}</Text>
+                      <Text style={styles.summary} numberOfLines={2}>
+                        {consultation.summary}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-                <View style={styles.statusBadge}>
-                  <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.success} />
-                  <Text style={styles.statusText}>Completed</Text>
-                </View>
-              </Card.Content>
-            </Card>
+                  <View style={styles.statusBadge}>
+                    <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.success} />
+                    <Text style={styles.statusText}>Completed</Text>
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={16}
+                      color={theme.colors.onSurfaceVariant}
+                      style={styles.chevron}
+                    />
+                  </View>
+                </Card.Content>
+              </Card>
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>
@@ -195,5 +217,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: theme.colors.success,
+  },
+  chevron: {
+    marginLeft: 2,
   },
 });

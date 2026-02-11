@@ -12,6 +12,7 @@ import InsightsScreen from '../screens/patient/InsightsScreen';
 import WaitingRoomScreen from '../screens/patient/WaitingRoomScreen';
 import VideoCallScreen from '../screens/patient/VideoCallScreen';
 import HistoryScreen from '../screens/patient/HistoryScreen';
+import ConsultationDetailScreen from '../screens/patient/ConsultationDetailScreen';
 import ProfileScreen from '../screens/patient/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
@@ -27,6 +28,15 @@ function HomeStackNavigator() {
       <Stack.Screen name="InsightsScreen" component={InsightsScreen} />
       <Stack.Screen name="WaitingRoom" component={WaitingRoomScreen} />
       <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function HistoryStackNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="HistoryList" component={HistoryScreen} />
+      <Stack.Screen name="ConsultationDetail" component={ConsultationDetailScreen} />
     </Stack.Navigator>
   );
 }
@@ -64,7 +74,7 @@ export default function PatientNavigator({ onLogout }: { onLogout: () => void })
       />
       <Tab.Screen
         name="History"
-        component={HistoryScreen}
+        component={HistoryStackNavigator}
         options={{
           tabBarLabel: 'History',
           tabBarIcon: ({ color, size }) => (

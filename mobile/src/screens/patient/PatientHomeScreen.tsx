@@ -336,36 +336,55 @@ export default function PatientHomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Consultations</Text>
-            <Button mode="text" compact onPress={() => navigation.navigate('History' as never)}>
+            <Button
+              mode="text"
+              compact
+              onPress={() =>
+                (navigation as any).navigate('History', {
+                  screen: 'HistoryList',
+                })
+              }
+            >
               View All
             </Button>
           </View>
           {recentConsultations.length > 0 ? (
             recentConsultations.map((consultation: any) => (
-              <Card key={consultation.id} style={[styles.consultationCard, shadows.small]}>
-                <Card.Content style={styles.consultationContent}>
-                  <View style={styles.consultationLeft}>
-                    <Avatar.Text
-                      size={48}
-                      label={consultation.doctorName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'Dr'}
-                    />
-                    <View style={styles.consultationInfo}>
-                      <Text style={styles.consultationDoctor}>{consultation.doctorName || 'Doctor'}</Text>
-                      <Text style={styles.consultationDate}>
-                        {new Date(consultation.completedAt).toLocaleDateString()}
+              <TouchableOpacity
+                key={consultation.id}
+                activeOpacity={0.8}
+                onPress={() =>
+                  (navigation as any).navigate('History', {
+                    screen: 'ConsultationDetail',
+                    params: { consultation },
+                  })
+                }
+              >
+                <Card style={[styles.consultationCard, shadows.small]}>
+                  <Card.Content style={styles.consultationContent}>
+                    <View style={styles.consultationLeft}>
+                      <Avatar.Text
+                        size={48}
+                        label={consultation.doctorName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'Dr'}
+                      />
+                      <View style={styles.consultationInfo}>
+                        <Text style={styles.consultationDoctor}>{consultation.doctorName || 'Doctor'}</Text>
+                        <Text style={styles.consultationDate}>
+                          {new Date(consultation.completedAt).toLocaleDateString()}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.consultationRight}>
+                      <Text style={styles.consultationDiagnosis} numberOfLines={1}>
+                        {consultation.summary || 'Consultation'}
                       </Text>
+                      <View style={styles.consultationStatusBadge}>
+                        <Text style={styles.consultationStatus}>Completed</Text>
+                      </View>
                     </View>
-                  </View>
-                  <View style={styles.consultationRight}>
-                    <Text style={styles.consultationDiagnosis} numberOfLines={1}>
-                      {consultation.summary || 'Consultation'}
-                    </Text>
-                    <View style={styles.consultationStatusBadge}>
-                      <Text style={styles.consultationStatus}>Completed</Text>
-                    </View>
-                  </View>
-                </Card.Content>
-              </Card>
+                  </Card.Content>
+                </Card>
+              </TouchableOpacity>
             ))
           ) : (
             <Card style={[styles.consultationCard, shadows.small]}>
