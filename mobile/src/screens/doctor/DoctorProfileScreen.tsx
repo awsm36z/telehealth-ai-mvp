@@ -1,13 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Button, List, Avatar, Divider } from 'react-native-paper';
+import { Text, Button, List, Avatar, Divider, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing } from '../../theme';
+import { useResponsive } from '../../hooks/useResponsive';
+import { LANGUAGES, changeLanguage, getCurrentLanguage, type LanguageCode } from '../../i18n';
 
 export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void }) {
+  const { t } = useTranslation();
+  const { contentContainerStyle } = useResponsive();
   const [userName, setUserName] = useState('Doctor');
   const [userEmail, setUserEmail] = useState('doctor@email.com');
+  const [languageMenuVisible, setLanguageMenuVisible] = useState(false);
 
   useEffect(() => {
     loadProfileData();
@@ -32,6 +38,13 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
     }
   };
 
+  const handleLanguageChange = async (code: LanguageCode) => {
+    await changeLanguage(code);
+    setLanguageMenuVisible(false);
+  };
+
+  const currentLang = LANGUAGES.find((l) => l.code === getCurrentLanguage());
+
   const avatarLabel = userName
     .split(' ')
     .filter(Boolean)
@@ -43,7 +56,7 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentContainerStyle]}>
         <View style={styles.profileHeader}>
           <Avatar.Text size={80} label={avatarLabel} />
           <Text style={styles.name}>{userName}</Text>
@@ -55,22 +68,43 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
 
         <List.Section>
           <List.Item
-            title="Availability"
-            description="Set your consultation hours"
+            title={t('doctor.availability')}
+            description={t('doctor.availabilityDescription')}
             left={(props) => <List.Icon {...props} icon="calendar-clock" />}
-            onPress={() => Alert.alert('Availability', 'Availability scheduling will be available in a future update.')}
+            onPress={() => Alert.alert(t('doctor.availability'), t('doctor.availabilityMessage'))}
           />
           <List.Item
-            title="Credentials"
+            title={t('doctor.credentials')}
             description="License #12345"
             left={(props) => <List.Icon {...props} icon="certificate" />}
-            onPress={() => Alert.alert('Credentials', 'Credential management will be available in a future update.')}
+            onPress={() => Alert.alert(t('doctor.credentials'), t('doctor.credentialsMessage'))}
           />
+          <Menu
+            visible={languageMenuVisible}
+            onDismiss={() => setLanguageMenuVisible(false)}
+            anchor={
+              <List.Item
+                title={t('common.language')}
+                description={currentLang?.nativeLabel || 'English'}
+                left={(props) => <List.Icon {...props} icon="translate" />}
+                onPress={() => setLanguageMenuVisible(true)}
+              />
+            }
+          >
+            {LANGUAGES.map((lang) => (
+              <Menu.Item
+                key={lang.code}
+                onPress={() => handleLanguageChange(lang.code as LanguageCode)}
+                title={`${lang.nativeLabel} (${lang.label})`}
+                leadingIcon={getCurrentLanguage() === lang.code ? 'check' : undefined}
+              />
+            ))}
+          </Menu>
           <List.Item
-            title="Settings"
-            description="App preferences and notifications"
+            title={t('profile.settings')}
+            description={t('profile.settingsDescription')}
             left={(props) => <List.Icon {...props} icon="cog" />}
-            onPress={() => Alert.alert('Settings', 'App settings will be available in a future update.')}
+            onPress={() => Alert.alert(t('profile.settings'), t('profile.settingsMessage'))}
           />
         </List.Section>
 
@@ -80,7 +114,7 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
           style={styles.logoutButton}
           icon="logout"
         >
-          Logout
+          {t('common.logout')}
         </Button>
       </ScrollView>
     </SafeAreaView>

@@ -5,15 +5,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
 
 const { width } = Dimensions.get('window');
 const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default function PatientHomeScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation();
+  const { contentContainerStyle } = useResponsive();
   const [userName, setUserName] = useState('Patient');
   const [biometrics, setBiometrics] = useState<any>(null);
   const [recentCompletedTriage, setRecentCompletedTriage] = useState<any>(null);
@@ -221,7 +225,7 @@ export default function PatientHomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, contentContainerStyle]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <LinearGradient
           colors={[theme.colors.primary, theme.colors.secondary]}
@@ -231,8 +235,8 @@ export default function PatientHomeScreen() {
         >
           <View style={styles.headerContent}>
             <View>
-              <Text style={styles.greeting}>Hello, {userName} 👋</Text>
-              <Text style={styles.subtitle}>How are you feeling today?</Text>
+              <Text style={styles.greeting}>{t('home.greeting', { name: userName })}</Text>
+              <Text style={styles.subtitle}>{t('home.howAreYou')}</Text>
             </View>
             <Avatar.Text
               size={56}
@@ -245,19 +249,19 @@ export default function PatientHomeScreen() {
 
         {/* Quick Actions */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <Text style={styles.sectionTitle}>{t('home.quickActions')}</Text>
           <View style={styles.quickActions}>
             <QuickActionCard
               icon="chat-processing"
-              title="Start Consultation"
-              description="Get diagnosed by AI & doctor"
+              title={t('home.startConsultation')}
+              description={t('home.getdiagnosed')}
               color={theme.colors.primary}
               onPress={startConsultationFlow}
             />
             <QuickActionCard
               icon="heart-pulse"
-              title="Log Biometrics"
-              description="Record your vitals"
+              title={t('home.logBiometrics')}
+              description={t('home.recordVitals')}
               color={theme.colors.secondary}
               onPress={() => navigation.navigate('BiometricEntry' as never)}
             />
@@ -270,19 +274,19 @@ export default function PatientHomeScreen() {
               style={styles.continueButton}
               contentStyle={styles.continueButtonContent}
             >
-              {activeConsultation.status === 'active' ? 'Join Consultation' : 'Continue Consultation'}
+              {activeConsultation.status === 'active' ? t('home.joinConsultation') : t('home.continueConsultation')}
             </Button>
           )}
         </View>
 
         {/* Health Status Cards */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Health Status</Text>
+          <Text style={styles.sectionTitle}>{t('home.healthStatus')}</Text>
           {biometrics ? (
             <>
               <HealthMetricCard
                 icon="heart"
-                label="Heart Rate"
+                label={t('home.heartRate')}
                 value={getMetricValue('heartRate')}
                 unit="BPM"
                 status="logged"
@@ -290,7 +294,7 @@ export default function PatientHomeScreen() {
               />
               <HealthMetricCard
                 icon="thermometer"
-                label="Temperature"
+                label={t('home.temperature')}
                 value={getMetricValue('temperature')}
                 unit={`°${getMetricValue('temperatureUnit', 'F')}`}
                 status="logged"
@@ -298,7 +302,7 @@ export default function PatientHomeScreen() {
               />
               <HealthMetricCard
                 icon="blood-bag"
-                label="Blood Pressure"
+                label={t('home.bloodPressure')}
                 value={`${getMetricValue('bloodPressureSystolic')}/${getMetricValue('bloodPressureDiastolic')}`}
                 unit="mmHg"
                 status="logged"
@@ -315,16 +319,16 @@ export default function PatientHomeScreen() {
                     color={theme.colors.onSurfaceVariant}
                     style={styles.emptyIcon}
                   />
-                  <Text style={styles.emptyTitle}>No Biometrics Logged</Text>
+                  <Text style={styles.emptyTitle}>{t('home.noBiometrics')}</Text>
                   <Text style={styles.emptySubtext}>
-                    Add your biometric data to personalize triage and doctor insights.
+                    {t('home.addBiometrics')}
                   </Text>
                   <Button
                     mode="contained"
                     onPress={() => navigation.navigate('BiometricEntry' as never)}
                     style={styles.emptyActionButton}
                   >
-                    Log Biometrics
+                    {t('home.logBiometrics')}
                   </Button>
                 </View>
               </Card.Content>
@@ -335,7 +339,7 @@ export default function PatientHomeScreen() {
         {/* Recent Consultations */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Consultations</Text>
+            <Text style={styles.sectionTitle}>{t('home.recentConsultations')}</Text>
             <Button
               mode="text"
               compact
@@ -345,7 +349,7 @@ export default function PatientHomeScreen() {
                 })
               }
             >
-              View All
+              {t('home.viewAll')}
             </Button>
           </View>
           {recentConsultations.length > 0 ? (
@@ -379,7 +383,7 @@ export default function PatientHomeScreen() {
                         {consultation.summary || 'Consultation'}
                       </Text>
                       <View style={styles.consultationStatusBadge}>
-                        <Text style={styles.consultationStatus}>Completed</Text>
+                        <Text style={styles.consultationStatus}>{t('history.completed')}</Text>
                       </View>
                     </View>
                   </Card.Content>
@@ -396,16 +400,16 @@ export default function PatientHomeScreen() {
                     color={theme.colors.onSurfaceVariant}
                     style={styles.emptyIcon}
                   />
-                  <Text style={styles.emptyTitle}>No Consultations Yet</Text>
+                  <Text style={styles.emptyTitle}>{t('home.noConsultations')}</Text>
                   <Text style={styles.emptySubtext}>
-                    Start a consultation to get diagnosed by our AI and doctors
+                    {t('home.startFirstConsultation')}
                   </Text>
                   <Button
                     mode="contained"
                     onPress={startConsultationFlow}
                     style={styles.emptyActionButton}
                   >
-                    Start First Consultation
+                    {t('home.startConsultation')}
                   </Button>
                 </View>
               </Card.Content>
@@ -419,7 +423,7 @@ export default function PatientHomeScreen() {
       {/* Floating Action Button */}
       <FAB
         icon="plus"
-        label="New Consultation"
+        label={t('home.newConsultation')}
         style={styles.fab}
         onPress={startConsultationFlow}
       />
@@ -692,7 +696,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.lg,
-    bottom: spacing.lg,
+    bottom: spacing.sm,
     backgroundColor: theme.colors.primary,
   },
   emptyStateContent: {

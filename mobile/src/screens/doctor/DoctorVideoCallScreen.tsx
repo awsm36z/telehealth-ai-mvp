@@ -4,8 +4,10 @@ import { Text, IconButton, Surface, Button, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
+import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
 
 /**
@@ -61,11 +63,10 @@ function getStatusColor(status: 'normal' | 'warning' | 'critical'): string {
 
 export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const { roomName, patientId, patientName, insights, biometrics, triageTranscript } = route.params;
+  const { isTablet } = useResponsive();
 
   const [isConnecting, setIsConnecting] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [dailyJoinUrl, setDailyJoinUrl] = useState<string | null>(null);
   const [showNotes, setShowNotes] = useState(false);
   const [showBiometrics, setShowBiometrics] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -161,18 +162,34 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         throw new Error(response.error);
       }
 
-      // TODO: Initialize Daily.co call with token
-      // const { token, roomUrl } = response.data;
-      // await dailyCall.join({ url: roomUrl, token });
+      const roomUrl = response.data?.roomUrl;
+      const token = response.data?.token;
+      if (!roomUrl || !token) {
+        throw new Error('Video room token is missing. Please try again.');
+      }
 
-      // Simulate successful connection
-      setTimeout(() => {
-        setIsConnecting(false);
-        setIsConnected(true);
-        startCallTimer();
-      }, 1500);
+      const separator = roomUrl.includes('?') ? '&' : '?';
+      const joinUrl = `${roomUrl}${separator}t=${encodeURIComponent(token)}`;
+      setDailyJoinUrl(joinUrl);
+      setIsConnecting(false);
 
       console.log('Doctor joined video call:', roomName);
+
+      // Check if patient has joined yet (Bug #26 item 4)
+      try {
+        const callsResponse = await api.getActiveCalls();
+        if (callsResponse.data) {
+          const thisCall = callsResponse.data.find((c: any) => c.roomName === roomName);
+          if (thisCall && thisCall.status === 'waiting') {
+            Alert.alert(
+              'Patient Status',
+              'The patient has not joined the video call yet. They will appear once they connect.'
+            );
+          }
+        }
+      } catch {
+        // Non-critical, ignore
+      }
     } catch (error: any) {
       console.error('Failed to join call:', error);
       setIsConnecting(false);
@@ -186,6 +203,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   };
 
   const startCallTimer = () => {
+    if (callStartTime.current) return;
     callStartTime.current = Date.now();
     timerInterval.current = setInterval(() => {
       if (callStartTime.current) {
@@ -201,8 +219,9 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const toggleMute = () => setIsMuted(!isMuted);
-  const toggleVideo = () => setIsVideoOff(!isVideoOff);
+  const showDailyControlsHint = () => {
+    Alert.alert('Daily controls', 'Use the in-call controls inside the Daily video window for mic and camera.');
+  };
 
   const endCall = async () => {
     Alert.alert(
@@ -221,7 +240,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               }
               // Record consultation in history
               const doctorName = await AsyncStorage.getItem('userName');
-              await api.completeConsultation(patientId, roomName, doctorName || 'Doctor');
+              const completeResult = await api.completeConsultation(patientId, roomName, doctorName || 'Doctor');
+              if (completeResult.error) {
+                console.error('Failed to record consultation:', completeResult.error);
+                Alert.alert('Warning', 'Consultation notes may not have been saved to patient history.');
+              } else {
+                console.log('Consultation recorded for patient:', patientId);
+              }
               await api.endVideoCall(roomName);
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
@@ -258,33 +283,37 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     <SafeAreaView style={styles.container}>
       {/* Video Container */}
       <View style={styles.videoContainer}>
-        {/* Remote Video (Patient) */}
-        <View style={styles.remoteVideoContainer}>
-          <LinearGradient
-            colors={['#2c3e50', '#34495e']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
+        {dailyJoinUrl ? (
+          <WebView
+            source={{ uri: dailyJoinUrl }}
+            style={styles.webview}
+            originWhitelist={['*']}
+            javaScriptEnabled
+            domStorageEnabled
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            setSupportMultipleWindows={false}
+            onLoadEnd={startCallTimer}
+            onError={(webError) => {
+              console.error('Doctor Daily webview error:', webError.nativeEvent);
+              Alert.alert('Video Error', 'Video call failed to load. Please rejoin the consultation.');
+            }}
+            onHttpError={(syntheticEvent) => {
+              const { statusCode } = syntheticEvent.nativeEvent;
+              console.error(`Doctor WebView HTTP error: ${statusCode}`);
+              if (statusCode >= 400) {
+                Alert.alert('Video Error', `Video room returned error ${statusCode}. Please try again.`);
+              }
+            }}
           />
-          <View style={styles.placeholderVideoContent}>
-            <MaterialCommunityIcons name="account" size={100} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.placeholderText}>{patientName || 'Patient'}</Text>
+        ) : (
+          <View style={styles.remoteVideoContainer}>
+            <View style={styles.placeholderVideoContent}>
+              <MaterialCommunityIcons name="alert-circle" size={72} color="rgba(255,255,255,0.6)" />
+              <Text style={styles.placeholderText}>Unable to load video room</Text>
+            </View>
           </View>
-        </View>
-
-        {/* Local Video (Doctor) - PiP */}
-        <Surface style={[styles.localVideoContainer, shadows.large]}>
-          <LinearGradient
-            colors={[theme.colors.primary, theme.colors.secondary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.localVideoContent}>
-            <MaterialCommunityIcons name="doctor" size={36} color="rgba(255,255,255,0.9)" />
-            <Text style={styles.localVideoText}>You</Text>
-          </View>
-        </Surface>
+        )}
 
         {/* Call Info */}
         <View style={styles.callInfoOverlay}>
@@ -336,7 +365,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
       {/* Chat Transcript Panel (Slide up) */}
       {showTranscript && (
-        <View style={styles.insightsPanel}>
+        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
           <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.insightsPanelHeader}>
               <MaterialCommunityIcons name="chat-processing" size={20} color={theme.colors.secondary} />
@@ -389,7 +418,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
       {/* Biometrics Panel (Slide up) */}
       {showBiometrics && (
-        <View style={styles.insightsPanel}>
+        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
           <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.insightsPanelHeader}>
               <MaterialCommunityIcons name="heart-pulse" size={20} color={theme.colors.error} />
@@ -509,7 +538,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
       {/* AI Insights Panel (Slide up) */}
       {showNotes && !insights && (
-        <View style={styles.insightsPanel}>
+        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
           <View style={[styles.insightsScroll, { padding: spacing.lg }]}>
             <View style={styles.insightsPanelHeader}>
               <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
@@ -526,7 +555,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         </View>
       )}
       {showNotes && insights && (
-        <View style={styles.insightsPanel}>
+        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
           <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.insightsPanelHeader}>
               <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
@@ -604,7 +633,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
       {/* Doctor Notes Panel */}
       {showNotesPanel && (
-        <View style={styles.notesPanel}>
+        <View style={[styles.notesPanel, isTablet && { maxHeight: 450 }]}>
           <View style={styles.insightsPanelHeader}>
             <MaterialCommunityIcons name="note-edit" size={20} color={theme.colors.primary} />
             <Text style={styles.insightsPanelTitle}>Consultation Notes</Text>
@@ -642,7 +671,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
       {/* Ask AI Panel */}
       {showAskAI && (
-        <View style={styles.notesPanel}>
+        <View style={[styles.notesPanel, isTablet && { maxHeight: 450 }]}>
           <View style={styles.insightsPanelHeader}>
             <MaterialCommunityIcons name="robot" size={20} color={theme.colors.secondary} />
             <Text style={styles.insightsPanelTitle}>Ask AI</Text>
@@ -688,13 +717,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         <Surface style={[styles.controlsPanel, shadows.large]}>
           <View style={styles.controlButton}>
             <IconButton
-              icon={isMuted ? 'microphone-off' : 'microphone'}
+              icon="microphone"
               size={28}
               iconColor="#FFFFFF"
-              style={[styles.iconButton, isMuted ? styles.iconButtonMuted : styles.iconButtonActive]}
-              onPress={toggleMute}
+              style={[styles.iconButton, styles.iconButtonActive]}
+              onPress={showDailyControlsHint}
             />
-            <Text style={styles.controlLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+            <Text style={styles.controlLabel}>Mic</Text>
           </View>
 
           <View style={styles.controlButton}>
@@ -710,13 +739,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
           <View style={styles.controlButton}>
             <IconButton
-              icon={isVideoOff ? 'video-off' : 'video'}
+              icon="video"
               size={28}
               iconColor="#FFFFFF"
-              style={[styles.iconButton, isVideoOff ? styles.iconButtonMuted : styles.iconButtonActive]}
-              onPress={toggleVideo}
+              style={[styles.iconButton, styles.iconButtonActive]}
+              onPress={showDailyControlsHint}
             />
-            <Text style={styles.controlLabel}>{isVideoOff ? 'Turn On' : 'Turn Off'}</Text>
+            <Text style={styles.controlLabel}>Camera</Text>
           </View>
         </Surface>
       </View>
@@ -777,6 +806,10 @@ const styles = StyleSheet.create({
   videoContainer: {
     flex: 1,
     position: 'relative',
+  },
+  webview: {
+    flex: 1,
+    backgroundColor: '#000000',
   },
   remoteVideoContainer: {
     flex: 1,

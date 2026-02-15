@@ -3,10 +3,14 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 're
 import { Text, TextInput, Button, SegmentedButtons, HelperText } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../theme';
+import { useResponsive } from '../hooks/useResponsive';
 import api from '../utils/api';
 
 export default function LoginScreen({ navigation, onLogin }: any) {
+  const { t } = useTranslation();
+  const { contentContainerStyle } = useResponsive();
   const [userType, setUserType] = useState<'patient' | 'doctor'>('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,27 +22,30 @@ export default function LoginScreen({ navigation, onLogin }: any) {
     setError('');
 
     if (!email || !password) {
-      setError('Please fill in all fields');
+      setError(t('auth.errors.emailRequired'));
       return;
     }
 
     setLoading(true);
 
-    const response = await api.login(email, password, userType);
+    try {
+      const response = await api.login(email, password, userType);
 
-    if (response.error) {
-      setError(response.error);
+      if (response.error) {
+        setError(response.error);
+        return;
+      }
+
+      const { token, user } = response.data;
+      await AsyncStorage.setItem('userName', user.fullName || user.name || 'Patient');
+      await AsyncStorage.setItem('userEmail', user.email);
+      await AsyncStorage.setItem('userId', user.id);
+      await onLogin(token, user.type);
+    } catch (err: any) {
+      setError(t('auth.loginFailed'));
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const { token, user } = response.data;
-    // Store full user data including name
-    await AsyncStorage.setItem('userName', user.fullName || user.name || 'Patient');
-    await AsyncStorage.setItem('userEmail', user.email);
-    await AsyncStorage.setItem('userId', user.id);
-    await onLogin(token, user.type);
-    setLoading(false);
   };
 
   return (
@@ -48,29 +55,29 @@ export default function LoginScreen({ navigation, onLogin }: any) {
         style={styles.keyboardView}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to continue</Text>
+            <Text style={styles.title}>{t('auth.welcomeBack')}</Text>
+            <Text style={styles.subtitle}>{t('auth.signIn')}</Text>
           </View>
 
           <View style={styles.form}>
             <View style={styles.userTypeContainer}>
-              <Text style={styles.label}>I am a</Text>
+              <Text style={styles.label}>{t('auth.iAmA')}</Text>
               <SegmentedButtons
                 value={userType}
                 onValueChange={(value) => setUserType(value as 'patient' | 'doctor')}
                 buttons={[
                   {
                     value: 'patient',
-                    label: '🧑‍⚕️ Patient',
+                    label: `🧑‍⚕️ ${t('auth.patient')}`,
                     style: userType === 'patient' ? styles.segmentActive : styles.segment,
                   },
                   {
                     value: 'doctor',
-                    label: '⚕️ Doctor',
+                    label: `⚕️ ${t('auth.doctor')}`,
                     style: userType === 'doctor' ? styles.segmentActive : styles.segment,
                   },
                 ]}
@@ -80,7 +87,7 @@ export default function LoginScreen({ navigation, onLogin }: any) {
 
             <View style={styles.inputContainer}>
               <TextInput
-                label="Email"
+                label={t('auth.email')}
                 value={email}
                 onChangeText={setEmail}
                 mode="outlined"
@@ -96,7 +103,7 @@ export default function LoginScreen({ navigation, onLogin }: any) {
 
             <View style={styles.inputContainer}>
               <TextInput
-                label="Password"
+                label={t('auth.password')}
                 value={password}
                 onChangeText={setPassword}
                 mode="outlined"
@@ -130,7 +137,7 @@ export default function LoginScreen({ navigation, onLogin }: any) {
               contentStyle={styles.buttonContent}
               labelStyle={styles.buttonLabel}
             >
-              Sign In
+              {t('auth.signIn')}
             </Button>
 
             <Button
@@ -138,7 +145,7 @@ export default function LoginScreen({ navigation, onLogin }: any) {
               onPress={() => navigation.navigate('Register')}
               style={styles.registerButton}
             >
-              Don't have an account? Sign Up
+              {t('auth.noAccount')}
             </Button>
           </View>
         </ScrollView>

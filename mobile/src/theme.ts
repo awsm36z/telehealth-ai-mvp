@@ -69,6 +69,12 @@ export const spacing = {
   xxl: 48,
 };
 
+export const responsive = {
+  maxContentWidth: 720,
+  tabletBreakpoint: 768,
+  tabletPadding: 48,
+};
+
 export const shadows = {
   small: {
     shadowColor: '#000',

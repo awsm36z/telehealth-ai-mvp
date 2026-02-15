@@ -1,5 +1,11 @@
 import express, { Request, Response } from 'express';
-import { consultationNotes, consultationHistory, patientInsights, patientTriageData } from '../storage';
+import {
+  consultationNotes,
+  consultationHistory,
+  patientBiometrics,
+  patientInsights,
+  patientTriageData,
+} from '../storage';
 
 const router = express.Router();
 
@@ -63,9 +69,15 @@ router.post('/:patientId/complete', async (req: Request, res: Response) => {
     const { patientId } = req.params;
     const { roomName, doctorName } = req.body;
 
-    const notes = consultationNotes[patientId]?.notes || '';
+    const patientNotes = consultationNotes[patientId];
+    // Only attach notes for the same room to avoid leaking stale notes from prior consultations.
+    const notes =
+      patientNotes && (!roomName || !patientNotes.roomName || patientNotes.roomName === roomName)
+        ? patientNotes.notes || ''
+        : '';
     const insights = patientInsights[patientId] || null;
     const triageData = patientTriageData[patientId] || null;
+    const biometrics = patientBiometrics[patientId] || null;
 
     const consultation = {
       id: `consultation-${Date.now()}`,
@@ -73,7 +85,17 @@ router.post('/:patientId/complete', async (req: Request, res: Response) => {
       roomName,
       doctorName: doctorName || 'Doctor',
       notes,
+      doctorNotes: notes,
       summary: insights?.summary || triageData?.chiefComplaint || 'General consultation',
+      chiefComplaint: insights?.chiefComplaint || triageData?.chiefComplaint || null,
+      urgency: insights?.urgency || triageData?.urgency || null,
+      recommendation: insights?.recommendation || null,
+      nextSteps: insights?.nextSteps || [],
+      possibleConditions: insights?.possibleConditions || [],
+      triageCompletedAt: triageData?.completedAt || null,
+      triageTranscript: triageData?.messages || [],
+      insightsSnapshot: insights,
+      biometricsSnapshot: biometrics,
       completedAt: new Date().toISOString(),
     };
 
@@ -82,6 +104,7 @@ router.post('/:patientId/complete', async (req: Request, res: Response) => {
     }
     consultationHistory[patientId].push(consultation);
 
+    console.log(`📋 Consultation recorded for patient ${patientId}, total: ${consultationHistory[patientId].length}`);
     res.json({ message: 'Consultation recorded', data: consultation });
   } catch (error: any) {
     console.error('Complete consultation error:', error);

@@ -5,10 +5,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
+import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
 
 export default function DoctorDashboardScreen({ navigation }: any) {
+  const { t } = useTranslation();
+  const { contentContainerStyle } = useResponsive();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCalls, setActiveCalls] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
@@ -97,9 +101,9 @@ export default function DoctorDashboardScreen({ navigation }: any) {
       });
     } else {
       Alert.alert(
-        'No Active Call',
-        'This patient does not have an active video call waiting. They need to complete triage first.',
-        [{ text: 'OK' }]
+        t('doctor.noActiveCall'),
+        t('doctor.noActiveCallMessage'),
+        [{ text: t('common.ok') }]
       );
     }
   };
@@ -125,7 +129,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, contentContainerStyle]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <LinearGradient
           colors={[theme.colors.primary, theme.colors.secondary]}
@@ -136,7 +140,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
           <View style={styles.headerContent}>
             <View>
               <Text style={styles.greeting}>Dr. Martinez</Text>
-              <Text style={styles.subtitle}>{patientsForDisplay.length} patients waiting</Text>
+              <Text style={styles.subtitle}>{t('doctor.patientsWaiting', { count: patientsForDisplay.length })}</Text>
             </View>
             <Avatar.Text
               size={56}
@@ -152,17 +156,17 @@ export default function DoctorDashboardScreen({ navigation }: any) {
           <StatCard
             icon="account-clock"
             value={String(patientsForDisplay.length)}
-            label="Waiting"
+            label={t('doctor.waiting')}
             color={theme.colors.warning}
           />
-          <StatCard icon="check-circle" value="8" label="Today" color={theme.colors.success} />
-          <StatCard icon="clock" value="24m" label="Avg Time" color={theme.colors.info} />
+          <StatCard icon="check-circle" value="8" label={t('doctor.today')} color={theme.colors.success} />
+          <StatCard icon="clock" value="24m" label={t('doctor.avgTime')} color={theme.colors.info} />
         </View>
 
         {/* Search */}
         <View style={styles.searchContainer}>
           <Searchbar
-            placeholder="Search patients..."
+            placeholder={t('doctor.searchPatients')}
             onChangeText={setSearchQuery}
             value={searchQuery}
             style={styles.searchbar}
@@ -171,12 +175,12 @@ export default function DoctorDashboardScreen({ navigation }: any) {
 
         {/* Patient Queue */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Patient Queue</Text>
+          <Text style={styles.sectionTitle}>{t('doctor.patientQueue')}</Text>
           {!loading && patientsForDisplay.length === 0 ? (
             <Card style={styles.emptyCard}>
               <Card.Content>
-                <Text style={styles.emptyText}>No patients in queue</Text>
-                <Text style={styles.emptySubtext}>Patients will appear here after completing triage</Text>
+                <Text style={styles.emptyText}>{t('doctor.noPatients')}</Text>
+                <Text style={styles.emptySubtext}>{t('doctor.noPatientsSubtext')}</Text>
               </Card.Content>
             </Card>
           ) : (
@@ -191,6 +195,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
                     (c.status === 'waiting' || c.status === 'active')
                 )}
                 onStartCall={() => startConsultation(patient)}
+                t={t}
               />
             ))
           )}
@@ -214,7 +219,7 @@ function StatCard({ icon, value, label, color }: any) {
   );
 }
 
-function PatientCard({ patient, navigation, hasActiveCall, onStartCall }: any) {
+function PatientCard({ patient, navigation, hasActiveCall, onStartCall, t }: any) {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'high':
@@ -278,7 +283,7 @@ function PatientCard({ patient, navigation, hasActiveCall, onStartCall }: any) {
               textStyle={styles.aiChipText}
               icon="brain"
             >
-              AI Insights Ready
+              {t('doctor.aiInsightsReady')}
             </Chip>
           </View>
 
@@ -291,7 +296,7 @@ function PatientCard({ patient, navigation, hasActiveCall, onStartCall }: any) {
               style={styles.startCallButton}
               labelStyle={styles.startCallLabel}
             >
-              Start Video Consultation
+              {t('doctor.startVideoConsultation')}
             </Button>
           )}
         </Card.Content>

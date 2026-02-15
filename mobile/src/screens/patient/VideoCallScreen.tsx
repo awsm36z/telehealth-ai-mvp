@@ -2,23 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { Text, IconButton, Surface, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
-
-// Note: Daily.co video will be integrated here
-// For now, we'll create the UI structure
 
 export default function VideoCallScreen({ route, navigation }: any) {
   const { roomName, patientId } = route.params;
 
   const [isConnecting, setIsConnecting] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [dailyJoinUrl, setDailyJoinUrl] = useState<string | null>(null);
 
   const callStartTime = useRef<number | null>(null);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
@@ -27,7 +23,6 @@ export default function VideoCallScreen({ route, navigation }: any) {
     joinCall();
 
     return () => {
-      // Cleanup on unmount
       if (timerInterval.current) {
         clearInterval(timerInterval.current);
       }
@@ -39,33 +34,28 @@ export default function VideoCallScreen({ route, navigation }: any) {
       setIsConnecting(true);
       setError(null);
 
-      // Get token to join the room
-      const response = await api.joinVideoRoom(
-        roomName,
-        patientId,
-        'Patient',
-        'patient'
-      );
-
+      const storedName = await AsyncStorage.getItem('userName');
+      const participantName = storedName?.trim() || 'Patient';
+      const response = await api.joinVideoRoom(roomName, patientId, participantName, 'patient');
       if (response.error) {
         throw new Error(response.error);
       }
 
-      // TODO: Initialize Daily.co call with token
-      // const { token, roomUrl } = response.data;
-      // await dailyCall.join({ url: roomUrl, token });
+      const roomUrl = response.data?.roomUrl;
+      const token = response.data?.token;
+      if (!roomUrl || !token) {
+        throw new Error('Video room token is missing. Please try again.');
+      }
 
-      // Simulate successful connection for now
-      setTimeout(() => {
-        setIsConnecting(false);
-        setIsConnected(true);
-        startCallTimer();
-      }, 2000);
+      const separator = roomUrl.includes('?') ? '&' : '?';
+      const joinUrl = `${roomUrl}${separator}t=${encodeURIComponent(token)}`;
 
-      console.log('✅ Joined video call:', roomName);
-    } catch (error: any) {
-      console.error('Failed to join call:', error);
-      setError(error.message || 'Failed to join video call');
+      setDailyJoinUrl(joinUrl);
+      setIsConnecting(false);
+      console.log('✅ Joined Daily call:', roomName);
+    } catch (joinError: any) {
+      console.error('Failed to join call:', joinError);
+      setError(joinError.message || 'Failed to join video call');
       setIsConnecting(false);
 
       Alert.alert(
@@ -77,12 +67,13 @@ export default function VideoCallScreen({ route, navigation }: any) {
   };
 
   const startCallTimer = () => {
+    if (callStartTime.current) return;
+
     callStartTime.current = Date.now();
     timerInterval.current = setInterval(() => {
-      if (callStartTime.current) {
-        const duration = Math.floor((Date.now() - callStartTime.current) / 1000);
-        setCallDuration(duration);
-      }
+      if (!callStartTime.current) return;
+      const duration = Math.floor((Date.now() - callStartTime.current) / 1000);
+      setCallDuration(duration);
     }, 1000);
   };
 
@@ -90,18 +81,6 @@ export default function VideoCallScreen({ route, navigation }: any) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
-    // TODO: Implement actual mute toggle with Daily.co
-    // dailyCall.setLocalAudio(!isMuted);
-  };
-
-  const toggleVideo = () => {
-    setIsVideoOff(!isVideoOff);
-    // TODO: Implement actual video toggle with Daily.co
-    // dailyCall.setLocalVideo(isVideoOff);
   };
 
   const endCall = async () => {
@@ -115,21 +94,13 @@ export default function VideoCallScreen({ route, navigation }: any) {
           style: 'destructive',
           onPress: async () => {
             try {
-              // TODO: Leave Daily.co call
-              // await dailyCall.leave();
-
-              // Notify backend
               await api.endVideoCall(roomName);
-
-              // Stop timer
+            } catch (endError) {
+              console.error('Error ending call:', endError);
+            } finally {
               if (timerInterval.current) {
                 clearInterval(timerInterval.current);
               }
-
-              // Navigate back
-              navigation.navigate('PatientHome');
-            } catch (error: any) {
-              console.error('Error ending call:', error);
               navigation.navigate('PatientHome');
             }
           },
@@ -144,18 +115,18 @@ export default function VideoCallScreen({ route, navigation }: any) {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Connecting to doctor...</Text>
-          <Text style={styles.loadingSubtext}>Please wait</Text>
+          <Text style={styles.loadingSubtext}>Preparing secure Daily video room</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (error) {
+  if (error || !dailyJoinUrl) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
           <MaterialCommunityIcons name="alert-circle" size={64} color={theme.colors.error} />
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{error || 'Unable to load video room.'}</Text>
           <Button mode="contained" onPress={() => navigation.goBack()} style={styles.errorButton}>
             Go Back
           </Button>
@@ -166,38 +137,31 @@ export default function VideoCallScreen({ route, navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Video Container */}
       <View style={styles.videoContainer}>
-        {/* Remote Video (Doctor) */}
-        <View style={styles.remoteVideoContainer}>
-          <LinearGradient
-            colors={[theme.colors.primary, theme.colors.secondary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.placeholderVideoContent}>
-            <MaterialCommunityIcons name="account" size={100} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.placeholderText}>Waiting for doctor...</Text>
-          </View>
-        </View>
+        <WebView
+          source={{ uri: dailyJoinUrl }}
+          style={styles.webview}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          setSupportMultipleWindows={false}
+          onLoadEnd={startCallTimer}
+          onError={(webError) => {
+            console.error('Daily webview error:', webError.nativeEvent);
+            setError('Video call failed to load.');
+          }}
+          onHttpError={(syntheticEvent) => {
+            const { statusCode } = syntheticEvent.nativeEvent;
+            console.error(`WebView HTTP error: ${statusCode}`);
+            if (statusCode >= 400) {
+              setError(`Video room returned error ${statusCode}`);
+            }
+          }}
+        />
 
-        {/* Local Video (Self) - Picture in Picture */}
-        <Surface style={[styles.localVideoContainer, shadows.large]}>
-          <LinearGradient
-            colors={['#34495e', '#2c3e50']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.localVideoContent}>
-            <MaterialCommunityIcons name="account" size={40} color="rgba(255,255,255,0.7)" />
-            <Text style={styles.localVideoText}>You</Text>
-          </View>
-        </Surface>
-
-        {/* Call Info Overlay */}
-        <View style={styles.callInfoOverlay}>
+        <View style={styles.callInfoOverlay} pointerEvents="none">
           <Surface style={[styles.callInfoBadge, shadows.medium]}>
             <MaterialCommunityIcons name="circle" size={8} color="#4CAF50" />
             <Text style={styles.callDuration}>{formatDuration(callDuration)}</Text>
@@ -205,25 +169,21 @@ export default function VideoCallScreen({ route, navigation }: any) {
         </View>
       </View>
 
-      {/* Controls */}
       <View style={styles.controlsContainer}>
         <Surface style={[styles.controlsPanel, shadows.large]}>
-          {/* Mute Button */}
           <View style={styles.controlButton}>
             <IconButton
-              icon={isMuted ? 'microphone-off' : 'microphone'}
-              size={28}
+              icon="information"
+              size={26}
               iconColor="#FFFFFF"
-              style={[
-                styles.iconButton,
-                isMuted ? styles.iconButtonMuted : styles.iconButtonActive,
-              ]}
-              onPress={toggleMute}
+              style={[styles.iconButton, styles.iconButtonActive]}
+              onPress={() =>
+                Alert.alert('Daily controls', 'Use the on-screen mic/camera controls inside the call window.')
+              }
             />
-            <Text style={styles.controlLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+            <Text style={styles.controlLabel}>Help</Text>
           </View>
 
-          {/* End Call Button */}
           <View style={styles.controlButton}>
             <IconButton
               icon="phone-hangup"
@@ -233,21 +193,6 @@ export default function VideoCallScreen({ route, navigation }: any) {
               onPress={endCall}
             />
             <Text style={styles.controlLabel}>End</Text>
-          </View>
-
-          {/* Video Button */}
-          <View style={styles.controlButton}>
-            <IconButton
-              icon={isVideoOff ? 'video-off' : 'video'}
-              size={28}
-              iconColor="#FFFFFF"
-              style={[
-                styles.iconButton,
-                isVideoOff ? styles.iconButtonMuted : styles.iconButtonActive,
-              ]}
-              onPress={toggleVideo}
-            />
-            <Text style={styles.controlLabel}>{isVideoOff ? 'Turn On' : 'Turn Off'}</Text>
           </View>
         </Surface>
       </View>
@@ -297,39 +242,9 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
-  remoteVideoContainer: {
+  webview: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
-  },
-  placeholderVideoContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  placeholderText: {
-    marginTop: spacing.md,
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  localVideoContainer: {
-    position: 'absolute',
-    top: spacing.xl,
-    right: spacing.lg,
-    width: 120,
-    height: 160,
-    borderRadius: theme.roundness * 2,
-    overflow: 'hidden',
-  },
-  localVideoContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  localVideoText: {
-    marginTop: spacing.xs,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.9)',
-    fontWeight: '600',
+    backgroundColor: '#000000',
   },
   callInfoOverlay: {
     position: 'absolute',
@@ -358,10 +273,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
-    borderRadius: theme.roundness * 2,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: theme.roundness * 3,
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
   },
   controlButton: {
     alignItems: 'center',
@@ -372,9 +287,6 @@ const styles = StyleSheet.create({
   },
   iconButtonActive: {
     backgroundColor: theme.colors.primary,
-  },
-  iconButtonMuted: {
-    backgroundColor: theme.colors.onSurfaceVariant,
   },
   iconButtonEnd: {
     backgroundColor: theme.colors.error,

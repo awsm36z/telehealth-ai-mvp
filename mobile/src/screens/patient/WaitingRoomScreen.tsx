@@ -5,10 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
 export default function WaitingRoomScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { triageData, insights, roomName: existingRoomName } = route.params || {};
 
   const [waitTime, setWaitTime] = useState(0);
@@ -96,7 +98,8 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
 
   const createRoom = async (resolvedPatientId: string) => {
     try {
-      const response = await api.createVideoRoom(resolvedPatientId);
+      const userName = await AsyncStorage.getItem('userName');
+      const response = await api.createVideoRoom(resolvedPatientId, undefined, userName || undefined);
 
       if (response.error) {
         throw new Error(response.error);
@@ -104,7 +107,7 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
 
       setRoomName(response.data.roomName);
       setStatus('waiting');
-      console.log('Created room:', response.data.roomName);
+      console.log('Created/reused room:', response.data.roomName, response.data.message || '');
     } catch (error: any) {
       console.error('Failed to create room:', error);
       setStatus('error');
@@ -148,9 +151,9 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
           <View style={styles.stepBadge}>
             <Text style={styles.stepBadgeText}>3/3</Text>
           </View>
-          <Text style={styles.title}>Waiting Room</Text>
+          <Text style={styles.title}>{t('waitingRoom.title')}</Text>
           <Text style={styles.subtitle}>
-            Your triage is complete. A doctor will be with you shortly.
+            {t('waitingRoom.subtitle')}
           </Text>
         </View>
 
@@ -167,15 +170,15 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
           </Animated.View>
 
           <Text style={styles.statusText}>
-            {status === 'creating' && 'Setting up your consultation...'}
-            {status === 'waiting' && 'Waiting for a doctor...'}
-            {status === 'doctor_joined' && 'Doctor is ready!'}
-            {status === 'error' && 'Something went wrong'}
+            {status === 'creating' && t('waitingRoom.settingUp')}
+            {status === 'waiting' && t('waitingRoom.waitingForDoctor')}
+            {status === 'doctor_joined' && t('waitingRoom.doctorReady')}
+            {status === 'error' && t('waitingRoom.somethingWrong')}
           </Text>
 
           <Surface style={[styles.timerBadge, shadows.medium]}>
             <MaterialCommunityIcons name="clock-outline" size={18} color={theme.colors.primary} />
-            <Text style={styles.timerText}>Wait time: {formatWaitTime(waitTime)}</Text>
+            <Text style={styles.timerText}>{t('waitingRoom.waitTime')}: {formatWaitTime(waitTime)}</Text>
           </Surface>
         </View>
 
@@ -185,10 +188,10 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
             <Surface style={[styles.infoCard, shadows.medium]}>
               <View style={styles.infoCardHeader}>
                 <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
-                <Text style={styles.infoCardTitle}>AI Insights Ready</Text>
+                <Text style={styles.infoCardTitle}>{t('waitingRoom.aiInsightsReady')}</Text>
               </View>
               <Text style={styles.infoCardText}>
-                Your symptoms have been analyzed. The doctor will review your AI-generated health insights before the consultation.
+                {t('waitingRoom.insightsDescription')}
               </Text>
             </Surface>
           )}
@@ -196,10 +199,10 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
           <Surface style={[styles.infoCard, shadows.medium]}>
             <View style={styles.infoCardHeader}>
               <MaterialCommunityIcons name="shield-check" size={20} color={theme.colors.success} />
-              <Text style={styles.infoCardTitle}>Secure Connection</Text>
+              <Text style={styles.infoCardTitle}>{t('waitingRoom.secureConnection')}</Text>
             </View>
             <Text style={styles.infoCardText}>
-              Your video consultation is end-to-end encrypted and HIPAA compliant.
+              {t('waitingRoom.secureDescription')}
             </Text>
           </Surface>
         </View>
@@ -214,7 +217,7 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
               labelStyle={styles.joinButtonLabel}
               icon="video"
             >
-              Join Video Call
+              {t('waitingRoom.joinVideoCall')}
             </Button>
           )}
           <Button
@@ -224,7 +227,7 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
             labelStyle={styles.cancelButtonLabel}
             icon="close"
           >
-            Leave Waiting Room
+            {t('waitingRoom.leaveWaitingRoom')}
           </Button>
         </View>
       </View>

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import OpenAI from 'openai';
-import { patientBiometrics, triageSessions, patientInsights, patientTriageData } from '../storage';
+import { patientBiometrics, patientProfiles, triageSessions, patientInsights, patientTriageData } from '../storage';
 // import Anthropic from '@anthropic-ai/sdk'; // Alternative LLM
 
 const router = express.Router();
@@ -111,13 +111,36 @@ function isValidMessageArray(messages: any): boolean {
   );
 }
 
+function hasBiometricData(biometrics: any): boolean {
+  if (!biometrics || typeof biometrics !== 'object') return false;
+
+  const biometricKeys = [
+    'bloodPressureSystolic',
+    'bloodPressureDiastolic',
+    'heartRate',
+    'temperature',
+    'weight',
+    'height',
+    'respiratoryRate',
+    'painLevel',
+    'bloodOxygen',
+    'bloodSugar',
+    'notes',
+  ];
+
+  return biometricKeys.some((key) => {
+    const value = biometrics[key];
+    return value !== undefined && value !== null && String(value).trim() !== '';
+  });
+}
+
 /**
  * POST /api/triage/chat
  * Continue triage conversation with LLM
  */
 router.post('/chat', async (req: Request, res: Response) => {
   try {
-    const { messages, sessionId, patientId } = req.body;
+    const { messages, sessionId, patientId, biometrics: requestBiometrics } = req.body;
 
     if (!messages || messages.length === 0) {
       return res.status(400).json({ message: 'Messages are required' });
@@ -125,6 +148,21 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     if (!isValidMessageArray(messages)) {
       return res.status(400).json({ message: 'Invalid message format' });
+    }
+
+    const hasIncomingBiometrics = hasBiometricData(requestBiometrics);
+    const resolvedBiometrics = hasIncomingBiometrics
+      ? requestBiometrics
+      : (patientId && hasBiometricData(patientBiometrics[patientId]) ? patientBiometrics[patientId] : null);
+
+    // Keep server-side state aligned when mobile sends biometrics directly with triage.
+    if (patientId && hasIncomingBiometrics) {
+      patientBiometrics[patientId] = {
+        ...patientBiometrics[patientId],
+        ...requestBiometrics,
+        patientId,
+        timestamp: new Date().toISOString(),
+      };
     }
 
     // Check if this is an initial greeting request
@@ -155,7 +193,7 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     // Handle initial greeting with biometric analysis
     if (isInitialGreeting && patientId) {
-      const biometrics = patientBiometrics[patientId];
+      const biometrics = resolvedBiometrics;
 
       if (biometrics && Object.keys(biometrics).length > 0) {
         // Format biometrics for AI analysis
@@ -202,7 +240,7 @@ Do NOT diagnose or provide medical advice.`;
     // Fetch patient biometrics if available and this is the first message
     let biometricAnalysis = '';
     if (isFirstMessage && patientId) {
-      const biometrics = patientBiometrics[patientId];
+      const biometrics = resolvedBiometrics;
 
       if (biometrics && Object.keys(biometrics).length > 0) {
         // Format biometrics for AI analysis
@@ -354,12 +392,28 @@ Generate the next triage question or conclude if sufficient information is gathe
 
       // Store insights and triage data for doctor access
       if (patientId) {
+        // Ensure patient profile exists so the doctor queue can display this patient
+        if (!patientProfiles[patientId]) {
+          patientProfiles[patientId] = {
+            id: patientId,
+            name: `Patient ${patientId}`,
+            email: '',
+            createdAt: new Date().toISOString(),
+          };
+          console.log(`📝 Created minimal profile for patient ${patientId} during triage completion`);
+        }
+
+        // Store chief complaint from insights into the triage data for the queue
+        const chiefComplaint = insights?.chiefComplaint || insights?.summary || 'General consultation';
+
         patientInsights[patientId] = {
           ...insights,
+          chiefComplaint,
           generatedAt: new Date().toISOString(),
         };
         patientTriageData[patientId] = {
           messages: triageSessions[sessionKey].messages,
+          chiefComplaint,
           completedAt: new Date().toISOString(),
         };
         console.log(`✅ Stored insights for patient ${patientId}`);
@@ -479,7 +533,26 @@ CRITICAL REQUIREMENTS:
     });
 
     const insightsText = completion.choices[0].message.content || '{}';
-    return JSON.parse(insightsText);
+    try {
+      return JSON.parse(insightsText);
+    } catch (parseError) {
+      // LLM sometimes wraps JSON in markdown code blocks
+      const jsonMatch = insightsText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonMatch && jsonMatch[1]) {
+        try {
+          return JSON.parse(jsonMatch[1]);
+        } catch {
+          // Fall through to default
+        }
+      }
+      console.error('Failed to parse insights JSON:', parseError);
+      return {
+        summary: insightsText.slice(0, 200),
+        keyFindings: [],
+        possibleConditions: [],
+        nextSteps: ['Schedule video consultation with doctor'],
+      };
+    }
   } catch (error) {
     console.error('Error generating insights:', error);
     return {

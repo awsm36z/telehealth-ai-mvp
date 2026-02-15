@@ -5,7 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
+import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
 
 interface Consultation {
@@ -24,7 +26,9 @@ interface Consultation {
 }
 
 export default function HistoryScreen() {
+  const { t } = useTranslation();
   const navigation = useNavigation();
+  const { contentContainerStyle } = useResponsive();
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,11 +71,11 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Consultation History</Text>
+        <Text style={styles.title}>{t('history.title')}</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, contentContainerStyle]}>
         {loading ? (
-          <Text style={styles.placeholderText}>Loading...</Text>
+          <Text style={styles.placeholderText}>{t('common.loading')}</Text>
         ) : consultations.length === 0 ? (
           <View style={styles.emptyState}>
             <MaterialCommunityIcons
@@ -80,9 +84,9 @@ export default function HistoryScreen() {
               color={theme.colors.onSurfaceVariant}
               style={{ opacity: 0.4, marginBottom: spacing.md }}
             />
-            <Text style={styles.emptyTitle}>No Consultations Yet</Text>
+            <Text style={styles.emptyTitle}>{t('history.noConsultations')}</Text>
             <Text style={styles.placeholderText}>
-              Your past consultations will appear here after you complete a video call with a doctor.
+              {t('history.noConsultationsDescription')}
             </Text>
           </View>
         ) : (
@@ -112,7 +116,7 @@ export default function HistoryScreen() {
                   </View>
                   <View style={styles.statusBadge}>
                     <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.success} />
-                    <Text style={styles.statusText}>Completed</Text>
+                    <Text style={styles.statusText}>{t('history.completed')}</Text>
                     <MaterialCommunityIcons
                       name="chevron-right"
                       size={16}

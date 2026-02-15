@@ -3,10 +3,14 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Touchable
 import { Text, TextInput, Button, SegmentedButtons, HelperText, Checkbox } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../theme';
+import { useResponsive } from '../hooks/useResponsive';
 import api from '../utils/api';
 
 export default function RegisterScreen({ navigation, onRegister }: any) {
+  const { t } = useTranslation();
+  const { contentContainerStyle } = useResponsive();
   const [userType, setUserType] = useState<'patient' | 'doctor'>('patient');
   const [formData, setFormData] = useState({
     fullName: '',
@@ -25,22 +29,41 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
   const validate = () => {
     const newErrors: any = {};
 
-    if (!formData.fullName) newErrors.fullName = 'Full name is required';
-    if (!formData.email) newErrors.email = 'Email is required';
-    if (!formData.email.includes('@')) newErrors.email = 'Invalid email format';
-    if (!formData.password) newErrors.password = 'Password is required';
-    if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+    if (!formData.fullName) newErrors.fullName = t('auth.errors.fullNameRequired');
+    if (!formData.email) {
+      newErrors.email = t('auth.errors.emailRequired');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = t('auth.errors.invalidEmail');
     }
-    if (!formData.phone) newErrors.phone = 'Phone number is required';
+    if (!formData.password) newErrors.password = t('auth.errors.passwordRequired');
+    if (formData.password.length < 8) newErrors.password = t('auth.errors.passwordLength');
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = t('auth.errors.passwordMismatch');
+    }
+    if (!formData.phone) {
+      newErrors.phone = t('auth.errors.phoneRequired');
+    } else if (formData.phone.replace(/\D/g, '').length !== 10) {
+      newErrors.phone = t('auth.errors.phoneInvalid');
+    }
     if (userType === 'patient' && !formData.dateOfBirth) {
-      newErrors.dateOfBirth = 'Date of birth is required';
+      newErrors.dateOfBirth = t('auth.errors.dobRequired');
+    } else if (userType === 'patient' && formData.dateOfBirth) {
+      const dobDigits = formData.dateOfBirth.replace(/\D/g, '');
+      if (dobDigits.length !== 8) {
+        newErrors.dateOfBirth = t('auth.errors.dobInvalid');
+      } else {
+        const month = parseInt(dobDigits.slice(0, 2));
+        const day = parseInt(dobDigits.slice(2, 4));
+        const year = parseInt(dobDigits.slice(4, 8));
+        if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > new Date().getFullYear()) {
+          newErrors.dateOfBirth = t('auth.errors.dobInvalid');
+        }
+      }
     }
     if (userType === 'doctor' && !formData.licenseNumber) {
-      newErrors.licenseNumber = 'License number is required';
+      newErrors.licenseNumber = t('auth.errors.licenseRequired');
     }
-    if (!agreedToTerms) newErrors.terms = 'You must agree to the terms and conditions';
+    if (!agreedToTerms) newErrors.terms = t('auth.errors.termsRequired');
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -68,7 +91,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
       await AsyncStorage.setItem('userId', user.id || '');
       await onRegister(token, user.type);
     } catch (err: any) {
-      setErrors({ general: 'Registration failed. Please try again.' });
+      setErrors({ general: t('auth.registrationFailed') });
     } finally {
       setLoading(false);
     }
@@ -113,30 +136,30 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
         style={styles.keyboardView}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join TeleHealth AI today</Text>
+            <Text style={styles.title}>{t('auth.createAccount')}</Text>
+            <Text style={styles.subtitle}>{t('auth.joinToday')}</Text>
           </View>
 
           <View style={styles.form}>
             <View style={styles.userTypeContainer}>
-              <Text style={styles.label}>I am a</Text>
+              <Text style={styles.label}>{t('auth.iAmA')}</Text>
               <SegmentedButtons
                 value={userType}
                 onValueChange={(value) => setUserType(value as 'patient' | 'doctor')}
                 buttons={[
-                  { value: 'patient', label: '🧑‍⚕️ Patient' },
-                  { value: 'doctor', label: '⚕️ Doctor' },
+                  { value: 'patient', label: `🧑‍⚕️ ${t('auth.patient')}` },
+                  { value: 'doctor', label: `⚕️ ${t('auth.doctor')}` },
                 ]}
               />
             </View>
 
             <TextInput
-              label="Full Name"
+              label={t('auth.fullName')}
               value={formData.fullName}
               onChangeText={(v) => updateField('fullName', v)}
               mode="outlined"
@@ -149,7 +172,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
             </HelperText>
 
             <TextInput
-              label="Email"
+              label={t('auth.email')}
               value={formData.email}
               onChangeText={(v) => updateField('email', v)}
               mode="outlined"
@@ -164,12 +187,12 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
             </HelperText>
 
             <TextInput
-              label="Phone Number"
+              label={t('auth.phoneNumber')}
               value={formData.phone}
               onChangeText={(v) => updateField('phone', v)}
               mode="outlined"
               keyboardType="phone-pad"
-              placeholder="(555) 123-4567"
+              placeholder={t('auth.phonePlaceholder')}
               maxLength={14}
               left={<TextInput.Icon icon="phone" />}
               style={styles.input}
@@ -182,12 +205,12 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
             {userType === 'patient' && (
               <>
                 <TextInput
-                  label="Date of Birth (MM/DD/YYYY)"
+                  label={t('auth.dateOfBirth')}
                   value={formData.dateOfBirth}
                   onChangeText={(v) => updateField('dateOfBirth', v)}
                   mode="outlined"
                   keyboardType="number-pad"
-                  placeholder="01/15/1990"
+                  placeholder={t('auth.dobPlaceholder')}
                   maxLength={10}
                   left={<TextInput.Icon icon="calendar" />}
                   style={styles.input}
@@ -202,7 +225,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
             {userType === 'doctor' && (
               <>
                 <TextInput
-                  label="Medical License Number"
+                  label={t('auth.medicalLicense')}
                   value={formData.licenseNumber}
                   onChangeText={(v) => updateField('licenseNumber', v)}
                   mode="outlined"
@@ -217,7 +240,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
             )}
 
             <TextInput
-              label="Password"
+              label={t('auth.password')}
               value={formData.password}
               onChangeText={(v) => updateField('password', v)}
               mode="outlined"
@@ -237,7 +260,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
             </HelperText>
 
             <TextInput
-              label="Confirm Password"
+              label={t('auth.confirmPassword')}
               value={formData.confirmPassword}
               onChangeText={(v) => updateField('confirmPassword', v)}
               mode="outlined"
@@ -265,9 +288,9 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
                 color={theme.colors.primary}
               />
               <Text style={styles.checkboxLabel}>
-                I agree to the{' '}
-                <Text style={styles.link}>Terms of Service</Text> and{' '}
-                <Text style={styles.link}>Privacy Policy</Text>
+                {t('auth.agreeToTerms')}{' '}
+                <Text style={styles.link}>{t('auth.termsOfService')}</Text> {t('auth.and')}{' '}
+                <Text style={styles.link}>{t('auth.privacyPolicy')}</Text>
               </Text>
             </TouchableOpacity>
             <HelperText type="error" visible={!!errors.terms}>
@@ -289,7 +312,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
               contentStyle={styles.buttonContent}
               labelStyle={styles.buttonLabel}
             >
-              Create Account
+              {t('auth.register')}
             </Button>
 
             <Button
@@ -297,7 +320,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
               onPress={() => navigation.navigate('Login')}
               style={styles.loginButton}
             >
-              Already have an account? Sign In
+              {t('auth.alreadyHaveAccount')}
             </Button>
           </View>
         </ScrollView>
@@ -351,17 +374,19 @@ const styles = StyleSheet.create({
   checkboxContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
     marginBottom: spacing.sm,
     padding: spacing.md,
     borderRadius: theme.roundness,
     borderWidth: 2,
-    borderColor: theme.colors.outline,
-    backgroundColor: theme.colors.surface,
+    borderColor: `${theme.colors.primary}60`,
+    backgroundColor: `${theme.colors.primary}05`,
+    elevation: 1,
   },
   checkboxContainerChecked: {
     borderColor: theme.colors.primary,
-    backgroundColor: `${theme.colors.primary}08`,
+    backgroundColor: `${theme.colors.primary}15`,
+    elevation: 2,
   },
   checkboxContainerError: {
     borderColor: theme.colors.error,

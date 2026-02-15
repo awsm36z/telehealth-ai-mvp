@@ -1,11 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { Component, useState, useEffect } from 'react';
+import { View, Text as RNText } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
+import { Provider as PaperProvider, MD3LightTheme, Button } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+
+// Initialize i18n
+import './src/i18n';
 
 // Import screens
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -28,6 +32,38 @@ const appTheme = {
   colors: theme.colors,
   roundness: theme.roundness,
 };
+
+class ErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('App Error Boundary caught:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <RNText style={{ fontSize: 20, fontWeight: '700', marginBottom: 8 }}>Something went wrong</RNText>
+          <RNText style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 16 }}>
+            {this.state.error?.message || 'An unexpected error occurred.'}
+          </RNText>
+          <Button mode="contained" onPress={() => this.setState({ hasError: false, error: null })}>
+            Try Again
+          </Button>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -94,29 +130,31 @@ export default function App() {
   return (
     <PaperProvider theme={appTheme}>
       <SafeAreaProvider>
-        <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            {!userToken ? (
-              <>
-                <Stack.Screen name="Welcome" component={WelcomeScreen} />
-                <Stack.Screen name="Login">
-                  {props => <LoginScreen {...props} onLogin={handleLogin} />}
+        <ErrorBoundary>
+          <NavigationContainer>
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+              {!userToken ? (
+                <>
+                  <Stack.Screen name="Welcome" component={WelcomeScreen} />
+                  <Stack.Screen name="Login">
+                    {props => <LoginScreen {...props} onLogin={handleLogin} />}
+                  </Stack.Screen>
+                  <Stack.Screen name="Register">
+                    {props => <RegisterScreen {...props} onRegister={handleLogin} />}
+                  </Stack.Screen>
+                </>
+              ) : userType === 'patient' ? (
+                <Stack.Screen name="PatientMain">
+                  {props => <PatientNavigator {...props} onLogout={handleLogout} />}
                 </Stack.Screen>
-                <Stack.Screen name="Register">
-                  {props => <RegisterScreen {...props} onRegister={handleLogin} />}
+              ) : (
+                <Stack.Screen name="DoctorMain">
+                  {props => <DoctorNavigator {...props} onLogout={handleLogout} />}
                 </Stack.Screen>
-              </>
-            ) : userType === 'patient' ? (
-              <Stack.Screen name="PatientMain">
-                {props => <PatientNavigator {...props} onLogout={handleLogout} />}
-              </Stack.Screen>
-            ) : (
-              <Stack.Screen name="DoctorMain">
-                {props => <DoctorNavigator {...props} onLogout={handleLogout} />}
-              </Stack.Screen>
-            )}
-          </Stack.Navigator>
-        </NavigationContainer>
+              )}
+            </Stack.Navigator>
+          </NavigationContainer>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </PaperProvider>
   );
