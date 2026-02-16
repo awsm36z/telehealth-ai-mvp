@@ -3,6 +3,7 @@ import { View, StyleSheet, Animated } from 'react-native';
 import { Text } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../theme';
+import BrandLogo from '../components/BrandLogo';
 
 export default function SplashScreen() {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -42,12 +43,9 @@ export default function SplashScreen() {
         ]}
       >
         <View style={styles.logoContainer}>
-          <View style={styles.logoCircle}>
-            <Text style={styles.logoIcon}>🏥</Text>
-          </View>
+          <BrandLogo size={124} showWordmark light />
         </View>
-        <Text style={styles.title}>TeleHealth AI</Text>
-        <Text style={styles.subtitle}>Your Health, Reimagined</Text>
+        <Text style={styles.fullName}>Vitali Intelligent Health</Text>
       </Animated.View>
     </View>
   );
@@ -65,29 +63,10 @@ const styles = StyleSheet.create({
   logoContainer: {
     marginBottom: 24,
   },
-  logoCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  logoIcon: {
-    fontSize: 60,
-  },
-  title: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 16,
+  fullName: {
+    fontSize: 15,
     color: 'rgba(255, 255, 255, 0.9)',
-    fontWeight: '400',
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });

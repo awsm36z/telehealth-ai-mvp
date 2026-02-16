@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../theme';
 import { useResponsive } from '../hooks/useResponsive';
 import api from '../utils/api';
+import { changeLanguage, getCurrentLanguage } from '../i18n';
+import LanguageSelector from '../components/LanguageSelector';
 
 export default function RegisterScreen({ navigation, onRegister }: any) {
   const { t } = useTranslation();
@@ -78,6 +80,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
       const response = await api.register({
         ...formData,
         userType,
+        language: getCurrentLanguage(),
       });
 
       if (response.error) {
@@ -86,9 +89,12 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
       }
 
       const { token, user } = response.data;
+      const preferredLanguage = (user.language || getCurrentLanguage()) as 'en' | 'fr' | 'ar';
+      await changeLanguage(preferredLanguage);
       await AsyncStorage.setItem('userName', user.fullName || user.name || formData.fullName || 'Patient');
       await AsyncStorage.setItem('userEmail', user.email || formData.email || '');
       await AsyncStorage.setItem('userId', user.id || '');
+      await AsyncStorage.setItem('userLanguage', preferredLanguage);
       await onRegister(token, user.type);
     } catch (err: any) {
       setErrors({ general: t('auth.registrationFailed') });
@@ -141,6 +147,7 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
+            <LanguageSelector style={styles.languageSelector} />
             <Text style={styles.title}>{t('auth.createAccount')}</Text>
             <Text style={styles.subtitle}>{t('auth.joinToday')}</Text>
           </View>
@@ -245,6 +252,8 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
               onChangeText={(v) => updateField('password', v)}
               mode="outlined"
               secureTextEntry={!showPassword}
+              textContentType="newPassword"
+              autoComplete="new-password"
               left={<TextInput.Icon icon="lock" />}
               right={
                 <TextInput.Icon
@@ -265,6 +274,8 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
               onChangeText={(v) => updateField('confirmPassword', v)}
               mode="outlined"
               secureTextEntry={!showPassword}
+              textContentType="password"
+              autoComplete="new-password"
               left={<TextInput.Icon icon="lock-check" />}
               style={styles.input}
               error={!!errors.confirmPassword}
@@ -344,6 +355,10 @@ const styles = StyleSheet.create({
   header: {
     marginTop: spacing.lg,
     marginBottom: spacing.xl,
+  },
+  languageSelector: {
+    alignItems: 'flex-end',
+    marginBottom: spacing.md,
   },
   title: {
     fontSize: 32,

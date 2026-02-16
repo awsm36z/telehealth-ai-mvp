@@ -7,13 +7,15 @@ import { useTranslation } from 'react-i18next';
 import { theme, spacing } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import { LANGUAGES, changeLanguage, getCurrentLanguage, type LanguageCode } from '../../i18n';
+import api from '../../utils/api';
 
-export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
+export default function ProfileScreen({ onLogout, navigation }: { onLogout: () => void; navigation: any }) {
   const { t } = useTranslation();
   const { contentContainerStyle } = useResponsive();
   const [userName, setUserName] = useState('Patient');
   const [userEmail, setUserEmail] = useState('patient@email.com');
   const [languageMenuVisible, setLanguageMenuVisible] = useState(false);
+  const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode>(getCurrentLanguage());
 
   useEffect(() => {
     loadProfileData();
@@ -21,9 +23,10 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 
   const loadProfileData = async () => {
     try {
-      const [storedName, storedEmail] = await Promise.all([
+      const [storedName, storedEmail, storedUserId] = await Promise.all([
         AsyncStorage.getItem('userName'),
         AsyncStorage.getItem('userEmail'),
+        AsyncStorage.getItem('userId'),
       ]);
 
       if (storedName?.trim()) {
@@ -33,6 +36,18 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
       if (storedEmail?.trim()) {
         setUserEmail(storedEmail.trim());
       }
+
+      if (storedUserId) {
+        const profileRes = await api.getUserProfile(storedUserId, 'patient');
+        if (profileRes.data?.language && ['en', 'fr', 'ar'].includes(profileRes.data.language)) {
+          const lang = profileRes.data.language as LanguageCode;
+          setPreferredLanguage(lang);
+          if (lang !== getCurrentLanguage()) {
+            await changeLanguage(lang);
+          }
+          await AsyncStorage.setItem('userLanguage', lang);
+        }
+      }
     } catch (error) {
       console.error('Error loading profile data:', error);
     }
@@ -40,10 +55,16 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 
   const handleLanguageChange = async (code: LanguageCode) => {
     await changeLanguage(code);
+    setPreferredLanguage(code);
+    await AsyncStorage.setItem('userLanguage', code);
+    const userId = await AsyncStorage.getItem('userId');
+    if (userId) {
+      await api.updateUserLanguage(userId, 'patient', code);
+    }
     setLanguageMenuVisible(false);
   };
 
-  const currentLang = LANGUAGES.find((l) => l.code === getCurrentLanguage());
+  const currentLang = LANGUAGES.find((l) => l.code === preferredLanguage);
 
   const avatarLabel = userName
     .split(' ')
@@ -68,19 +89,47 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
             title={t('profile.medicalHistory')}
             description={t('profile.medicalHistoryDescription')}
             left={(props) => <List.Icon {...props} icon="clipboard-text" />}
-            onPress={() => Alert.alert(t('profile.medicalHistory'), t('profile.medicalHistoryMessage'))}
+            onPress={() => navigation.navigate('History')}
           />
           <List.Item
             title={t('profile.medications')}
             description={t('profile.medicationsDescription')}
             left={(props) => <List.Icon {...props} icon="pill" />}
-            onPress={() => Alert.alert(t('profile.medications'), t('profile.medicationsMessage'))}
+            onPress={async () => {
+              const patientId = await AsyncStorage.getItem('userId');
+              if (!patientId) {
+                Alert.alert(t('common.error'), t('common.retry'));
+                return;
+              }
+              navigation.navigate('History', {
+                screen: 'AsyncMessages',
+                params: {
+                  patientId,
+                  senderType: 'patient',
+                  title: 'Medication Follow-up Messages',
+                },
+              });
+            }}
           />
           <List.Item
             title={t('profile.allergies')}
             description={t('profile.allergiesDescription')}
             left={(props) => <List.Icon {...props} icon="alert-circle" />}
-            onPress={() => Alert.alert(t('profile.allergies'), t('profile.allergiesMessage'))}
+            onPress={async () => {
+              const patientId = await AsyncStorage.getItem('userId');
+              if (!patientId) {
+                Alert.alert(t('common.error'), t('common.retry'));
+                return;
+              }
+              navigation.navigate('History', {
+                screen: 'AsyncMessages',
+                params: {
+                  patientId,
+                  senderType: 'patient',
+                  title: 'Allergy Follow-up Messages',
+                },
+              });
+            }}
           />
           <Menu
             visible={languageMenuVisible}
@@ -99,7 +148,7 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
                 key={lang.code}
                 onPress={() => handleLanguageChange(lang.code as LanguageCode)}
                 title={`${lang.nativeLabel} (${lang.label})`}
-                leadingIcon={getCurrentLanguage() === lang.code ? 'check' : undefined}
+                leadingIcon={preferredLanguage === lang.code ? 'check' : undefined}
               />
             ))}
           </Menu>

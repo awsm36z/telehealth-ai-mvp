@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,16 +6,39 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Animated,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { Text, TextInput, IconButton, Surface, ProgressBar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Speech from 'expo-speech';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
+// Try to import speech recognition (requires dev build)
+let ExpoSpeechRecognitionModule: any = null;
+let useSpeechRecognitionEvent: any = null;
+try {
+  const speechRecognition = require('expo-speech-recognition');
+  ExpoSpeechRecognitionModule = speechRecognition.ExpoSpeechRecognitionModule;
+  useSpeechRecognitionEvent = speechRecognition.useSpeechRecognitionEvent;
+} catch (e) {
+  // expo-speech-recognition not available (e.g., running in Expo Go)
+  console.log('Speech recognition not available - voice input will fall back to text mode');
+}
+
 const CONSULTATION_STATE_KEY = 'consultationState';
+
+// Known female voice names for TTS
+const PREFERRED_FEMALE_VOICES = [
+  'Samantha', 'Karen', 'Kate', 'Moira', 'Martha', 'Flo',
+  'Sandy', 'Shelley', 'Catherine', 'Tessa', 'Zoe', 'Nicky',
+];
 
 interface Message {
   id: string;
@@ -25,6 +48,7 @@ interface Message {
 }
 
 export default function TriageChatScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const startFresh = !!route?.params?.startFresh;
   const consultationBiometrics = route?.params?.consultationBiometrics || null;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -36,6 +60,27 @@ export default function TriageChatScreen({ navigation, route }: any) {
   const [patientId, setPatientId] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
+  // Voice mode state
+  const [isVoiceMode, setIsVoiceMode] = useState(true); // Voice by default
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
+  const [sttAvailable, setSttAvailable] = useState(false);
+
+  // Pulse animation for mic button
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  // Initialize TTS voice selection
+  useEffect(() => {
+    initializeVoice();
+  }, []);
+
+  // Set up STT event listeners via hooks (only if available)
+  // We need to handle this carefully since useSpeechRecognitionEvent is a hook
+  // but may not be available. We'll use a wrapper component pattern.
+
   // Resolve user ID before starting triage
   useEffect(() => {
     initializeTriage();
@@ -45,7 +90,155 @@ export default function TriageChatScreen({ navigation, route }: any) {
     scrollToBottom();
   }, [messages]);
 
+  // Pulse animation for active listening
+  useEffect(() => {
+    if (isListening) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.2, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        ])
+      );
+      const glow = Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+          Animated.timing(glowAnim, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+        ])
+      );
+      pulse.start();
+      glow.start();
+      return () => { pulse.stop(); glow.stop(); };
+    } else {
+      pulseAnim.setValue(1);
+      glowAnim.setValue(0);
+    }
+  }, [isListening]);
+
+  // Clean up TTS on unmount
+  useEffect(() => {
+    return () => {
+      Speech.stop();
+    };
+  }, []);
+
+  const initializeVoice = async () => {
+    try {
+      // Find a female voice for TTS
+      const voices = await Speech.getAvailableVoicesAsync();
+      const englishVoices = voices.filter((v) => v.language.startsWith('en'));
+
+      // Try to find a preferred female voice (enhanced quality first)
+      let femaleVoice = englishVoices.find(
+        (v) => v.quality === 'Enhanced' && PREFERRED_FEMALE_VOICES.some((name) => v.name.includes(name))
+      );
+      if (!femaleVoice) {
+        femaleVoice = englishVoices.find(
+          (v) => PREFERRED_FEMALE_VOICES.some((name) => v.name.includes(name))
+        );
+      }
+
+      if (femaleVoice) {
+        setSelectedVoice(femaleVoice.identifier);
+        console.log('Selected TTS voice:', femaleVoice.name, femaleVoice.identifier);
+      } else {
+        console.log('No preferred female voice found, using system default');
+      }
+
+      // Check if STT is available
+      if (ExpoSpeechRecognitionModule) {
+        try {
+          const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+          setSttAvailable(available);
+          if (!available) {
+            console.log('Speech recognition not available on this device');
+          }
+        } catch {
+          setSttAvailable(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error initializing voice:', error);
+    }
+  };
+
+  const speakMessage = useCallback((text: string, onDone?: () => void) => {
+    // Stop any current speech
+    Speech.stop();
+
+    setIsSpeaking(true);
+    Speech.speak(text, {
+      language: 'en-US',
+      pitch: 1.1, // Slightly higher pitch for feminine voice
+      rate: 0.9,  // Slightly slower for empathetic, clear delivery
+      voice: selectedVoice,
+      onDone: () => {
+        setIsSpeaking(false);
+        onDone?.();
+      },
+      onStopped: () => {
+        setIsSpeaking(false);
+      },
+      onError: () => {
+        setIsSpeaking(false);
+      },
+    });
+  }, [selectedVoice]);
+
+  const startListening = async () => {
+    if (!ExpoSpeechRecognitionModule || !sttAvailable) {
+      // STT not available, switch to text mode
+      setIsVoiceMode(false);
+      Alert.alert(
+        t('triage.voiceUnavailable'),
+        t('triage.voiceUnavailableMessage'),
+      );
+      return;
+    }
+
+    // Stop TTS if speaking
+    if (isSpeaking) {
+      Speech.stop();
+    }
+
+    try {
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert(
+          t('triage.micPermissionRequired'),
+          t('triage.micPermissionMessage'),
+        );
+        return;
+      }
+
+      setTranscript('');
+      setIsListening(true);
+
+      ExpoSpeechRecognitionModule.start({
+        lang: 'en-US',
+        interimResults: true,
+        continuous: false,
+        addsPunctuation: true,
+      });
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      setIsListening(false);
+      setIsVoiceMode(false);
+    }
+  };
+
+  const stopListening = () => {
+    if (ExpoSpeechRecognitionModule) {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch (e) {
+        // ignore
+      }
+    }
+    setIsListening(false);
+  };
+
   const handleBackPress = () => {
+    Speech.stop();
     if (navigation.canGoBack()) {
       navigation.goBack();
       return;
@@ -109,6 +302,13 @@ export default function TriageChatScreen({ navigation, route }: any) {
       setQuestionCount(saved.questionCount || 1);
       setProgress(saved.progress || 0.1);
       setIsLoading(false);
+
+      // Speak the last AI message on restore if in voice mode
+      const lastAiMessage = [...restoredMessages].reverse().find((m) => m.role === 'ai');
+      if (lastAiMessage && isVoiceMode) {
+        setTimeout(() => speakMessage(lastAiMessage.content), 500);
+      }
+
       return true;
     } catch (error) {
       console.error('Error restoring consultation state:', error);
@@ -155,7 +355,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
     try {
       setIsLoading(true);
 
-      // Send initial message to trigger biometric analysis
       const response = await api.triageChat({
         messages: [{ role: 'user', content: '__INITIAL_GREETING__' }],
         patientId: resolvedPatientId,
@@ -172,28 +371,39 @@ export default function TriageChatScreen({ navigation, route }: any) {
         const nextMessages = [aiMessage];
         setMessages(nextMessages);
         await persistInProgressState(nextMessages, resolvedPatientId, 1, 0.1);
+
+        // Speak the initial greeting
+        if (isVoiceMode) {
+          setTimeout(() => speakMessage(aiMessage.content), 300);
+        }
       } else {
-        // Fallback to default greeting if API fails
         const fallbackMessage: Message = {
           id: '1',
           role: 'ai',
-          content: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
+          content: "Hello! I'm Nurse Sarah, your AI health assistant. I'm here to help understand your symptoms. What brings you here today?",
           timestamp: new Date(),
         };
         const nextMessages = [fallbackMessage];
         setMessages(nextMessages);
         await persistInProgressState(nextMessages, resolvedPatientId, 1, 0.1);
+
+        if (isVoiceMode) {
+          setTimeout(() => speakMessage(fallbackMessage.content), 300);
+        }
       }
     } catch (error) {
       console.error('Error fetching initial greeting:', error);
-      // Fallback to default greeting
       const fallbackMessage: Message = {
         id: '1',
         role: 'ai',
-        content: "Hello! I'm here to help understand your symptoms. Let's start with a simple question: What brings you here today?",
+        content: "Hello! I'm Nurse Sarah, your AI health assistant. I'm here to help understand your symptoms. What brings you here today?",
         timestamp: new Date(),
       };
       setMessages([fallbackMessage]);
+
+      if (isVoiceMode) {
+        setTimeout(() => speakMessage(fallbackMessage.content), 300);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -205,23 +415,22 @@ export default function TriageChatScreen({ navigation, route }: any) {
     }, 100);
   };
 
-  const sendMessage = async () => {
-    if (!inputText.trim() || !patientId) return;
+  const sendMessageWithText = async (text: string) => {
+    if (!text.trim() || !patientId) return;
 
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: inputText.trim(),
+      content: text.trim(),
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
+    setTranscript('');
     setIsTyping(true);
 
     try {
-      // Call backend API for next triage question
       const response = await api.triageChat({
         messages: [...messages, userMessage],
         patientId,
@@ -239,31 +448,36 @@ export default function TriageChatScreen({ navigation, route }: any) {
         timestamp: new Date(),
       };
 
-      // Update progress
       const nextQuestionCount = questionCount + 1;
-      const nextProgress = Math.min(nextQuestionCount / 10, 1); // Assume 10 questions max
+      const nextProgress = Math.min(nextQuestionCount / 10, 1);
       setQuestionCount(nextQuestionCount);
       setProgress(nextProgress);
 
-      // Always show the AI message
       const nextMessages = [...messages, userMessage, aiMessage];
       setMessages(nextMessages);
       await persistInProgressState(nextMessages, patientId, nextQuestionCount, nextProgress);
 
-      // Check if triage is complete
+      // Speak AI response if in voice mode
+      if (isVoiceMode) {
+        speakMessage(aiMessage.content);
+      }
+
       if (response.data.complete) {
         api.trackEvent('triage_completed', { questionCount: nextQuestionCount });
         await persistCompletedState(patientId, response.data.triageData, response.data.insights);
-        // Show the final message, then send patient straight to consultation waiting room.
+
+        // Wait for TTS to finish before navigating to patient-facing AI insights.
+        const delay = isVoiceMode ? 4000 : 2500;
         setTimeout(() => {
-          navigation.navigate('WaitingRoom', {
+          Speech.stop();
+          navigation.navigate('InsightsScreen', {
             triageData: response.data.triageData,
             insights: response.data.insights,
+            fromTriageComplete: true,
           });
-        }, 2500);
+        }, delay);
       }
 
-      // Track emergency detection
       if (response.data.emergency) {
         api.trackEvent('emergency_detected');
       }
@@ -276,8 +490,34 @@ export default function TriageChatScreen({ navigation, route }: any) {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
+
+      if (isVoiceMode) {
+        speakMessage(errorMessage.content);
+      }
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const sendMessage = () => {
+    sendMessageWithText(inputText);
+  };
+
+  const handleVoiceResult = (finalTranscript: string) => {
+    if (finalTranscript.trim()) {
+      sendMessageWithText(finalTranscript);
+    }
+  };
+
+  const toggleMode = () => {
+    if (isListening) stopListening();
+    if (isSpeaking) Speech.stop();
+    setIsVoiceMode(!isVoiceMode);
+  };
+
+  const toggleSpeaker = () => {
+    if (isSpeaking) {
+      Speech.stop();
     }
   };
 
@@ -302,10 +542,19 @@ export default function TriageChatScreen({ navigation, route }: any) {
             <View style={styles.stepBadge}>
               <Text style={styles.stepBadgeText}>2/3</Text>
             </View>
-            <Text style={styles.headerTitle}>Triage Assessment</Text>
-            <Text style={styles.headerSubtitle}>Question {questionCount} of ~10</Text>
+            <Text style={styles.headerTitle}>{t('triage.title')}</Text>
+            <Text style={styles.headerSubtitle}>
+              {isVoiceMode ? t('triage.voiceMode') : t('triage.textMode')} - {t('triage.questionOf', { current: questionCount })}
+            </Text>
           </View>
-          <View style={{ width: 40 }} />
+          {/* Voice/Text toggle in header */}
+          <IconButton
+            icon={isVoiceMode ? 'keyboard' : 'microphone'}
+            iconColor="#FFFFFF"
+            size={22}
+            onPress={toggleMode}
+            style={styles.modeToggle}
+          />
         </View>
         <ProgressBar
           progress={progress}
@@ -318,9 +567,18 @@ export default function TriageChatScreen({ navigation, route }: any) {
       <View style={styles.disclaimerBar}>
         <MaterialCommunityIcons name="shield-check" size={14} color={theme.colors.onSurfaceVariant} />
         <Text style={styles.disclaimerBarText}>
-          Not a diagnosis. Your doctor will review this information.
+          {t('triage.disclaimer')}
         </Text>
       </View>
+
+      {/* Speaking indicator */}
+      {isSpeaking && (
+        <TouchableOpacity style={styles.speakingBar} onPress={toggleSpeaker} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="volume-high" size={16} color={theme.colors.primary} />
+          <Text style={styles.speakingText}>{t('triage.nurseSpeaking')}</Text>
+          <MaterialCommunityIcons name="close-circle" size={16} color={theme.colors.onSurfaceVariant} />
+        </TouchableOpacity>
+      )}
 
       {/* Messages */}
       <KeyboardAvoidingView
@@ -336,20 +594,24 @@ export default function TriageChatScreen({ navigation, route }: any) {
           {isLoading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text style={styles.loadingText}>Analyzing your health data...</Text>
+              <Text style={styles.loadingText}>{t('triage.analyzing')}</Text>
             </View>
           ) : (
             messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onSpeakPress={isVoiceMode ? () => speakMessage(message.content) : undefined}
+              />
             ))
           )}
 
           {isTyping && (
             <View style={[styles.messageBubble, styles.aiMessage]}>
               <View style={styles.typingIndicator}>
-                <View style={[styles.typingDot, { animationDelay: '0ms' }]} />
-                <View style={[styles.typingDot, { animationDelay: '200ms' }]} />
-                <View style={[styles.typingDot, { animationDelay: '400ms' }]} />
+                <View style={styles.typingDot} />
+                <View style={styles.typingDot} />
+                <View style={styles.typingDot} />
               </View>
             </View>
           )}
@@ -357,53 +619,197 @@ export default function TriageChatScreen({ navigation, route }: any) {
           <View style={{ height: spacing.xl }} />
         </ScrollView>
 
-        {/* Input */}
+        {/* Input Area */}
         <View style={styles.inputContainer}>
-          <Surface style={[styles.inputSurface, shadows.medium]}>
-            <TextInput
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="Type your answer..."
-              multiline
-              maxLength={500}
-              style={styles.textInput}
-              mode="flat"
-              underlineColor="transparent"
-              activeUnderlineColor="transparent"
-              onSubmitEditing={sendMessage}
+          {isVoiceMode ? (
+            <VoiceInputArea
+              isListening={isListening}
+              transcript={transcript}
+              isTyping={isTyping}
+              pulseAnim={pulseAnim}
+              glowAnim={glowAnim}
+              onStartListening={startListening}
+              onStopListening={stopListening}
+              onSendTranscript={handleVoiceResult}
+              sttAvailable={sttAvailable}
+              setTranscript={setTranscript}
+              setIsListening={setIsListening}
             />
-            <IconButton
-              icon="send"
-              size={24}
-              iconColor={inputText.trim() ? theme.colors.primary : theme.colors.onSurfaceVariant}
-              onPress={sendMessage}
-              disabled={!inputText.trim() || isTyping}
-              style={styles.sendButton}
-            />
-          </Surface>
+          ) : (
+            <Surface style={[styles.inputSurface, shadows.medium]}>
+              <TextInput
+                value={inputText}
+                onChangeText={setInputText}
+                placeholder={t('triage.inputPlaceholder')}
+                multiline
+                maxLength={500}
+                style={styles.textInput}
+                mode="flat"
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                onSubmitEditing={sendMessage}
+              />
+              <IconButton
+                icon="send"
+                size={24}
+                iconColor={inputText.trim() ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                onPress={sendMessage}
+                disabled={!inputText.trim() || isTyping}
+                style={styles.sendButton}
+              />
+            </Surface>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+// Voice Input Area component
+function VoiceInputArea({
+  isListening,
+  transcript,
+  isTyping,
+  pulseAnim,
+  glowAnim,
+  onStartListening,
+  onStopListening,
+  onSendTranscript,
+  sttAvailable,
+  setTranscript,
+  setIsListening,
+}: {
+  isListening: boolean;
+  transcript: string;
+  isTyping: boolean;
+  pulseAnim: Animated.Value;
+  glowAnim: Animated.Value;
+  onStartListening: () => void;
+  onStopListening: () => void;
+  onSendTranscript: (text: string) => void;
+  sttAvailable: boolean;
+  setTranscript: (text: string) => void;
+  setIsListening: (value: boolean) => void;
+}) {
+  const { t } = useTranslation();
+
+  // Set up speech recognition event listeners if available
+  useEffect(() => {
+    if (!ExpoSpeechRecognitionModule || !useSpeechRecognitionEvent) return;
+
+    // We can't use the hook here conditionally, so we'll use the module's event emitter directly
+    const handleResult = (event: any) => {
+      const text = event?.results?.[0]?.transcript || '';
+      setTranscript(text);
+      // If final result, send the message
+      if (event?.isFinal && text.trim()) {
+        setIsListening(false);
+        onSendTranscript(text);
+      }
+    };
+
+    const handleEnd = () => {
+      setIsListening(false);
+    };
+
+    const handleError = (event: any) => {
+      console.error('Speech recognition error:', event?.error, event?.message);
+      setIsListening(false);
+    };
+
+    // Subscribe to events
+    const resultSub = ExpoSpeechRecognitionModule.addListener?.('result', handleResult);
+    const endSub = ExpoSpeechRecognitionModule.addListener?.('end', handleEnd);
+    const errorSub = ExpoSpeechRecognitionModule.addListener?.('error', handleError);
+
+    return () => {
+      resultSub?.remove?.();
+      endSub?.remove?.();
+      errorSub?.remove?.();
+    };
+  }, [setTranscript, setIsListening, onSendTranscript]);
+
+  return (
+    <View style={styles.voiceInputContainer}>
+      {/* Transcript preview */}
+      {transcript ? (
+        <View style={styles.transcriptContainer}>
+          <Text style={styles.transcriptText} numberOfLines={2}>{transcript}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.voiceControls}>
+        {/* Mic button */}
+        <Animated.View style={[styles.micButtonOuter, { transform: [{ scale: pulseAnim }] }]}>
+          <Animated.View
+            style={[
+              styles.micButtonGlow,
+              {
+                opacity: glowAnim,
+                backgroundColor: isListening ? `${theme.colors.primary}30` : 'transparent',
+              },
+            ]}
+          />
+          <TouchableOpacity
+            style={[
+              styles.micButton,
+              isListening && styles.micButtonActive,
+              isTyping && styles.micButtonDisabled,
+            ]}
+            onPress={isListening ? onStopListening : onStartListening}
+            disabled={isTyping}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons
+              name={isListening ? 'microphone' : 'microphone-outline'}
+              size={32}
+              color={isListening ? '#FFFFFF' : theme.colors.primary}
+            />
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Text style={styles.voiceHint}>
+          {isListening
+            ? t('triage.listening')
+            : isTyping
+              ? t('triage.nurseThinking')
+              : t('triage.tapToSpeak')}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function MessageBubble({
+  message,
+  onSpeakPress,
+}: {
+  message: Message;
+  onSpeakPress?: () => void;
+}) {
   const isAI = message.role === 'ai';
 
   return (
     <View style={[styles.messageBubble, isAI ? styles.aiMessage : styles.userMessage]}>
       {isAI && (
         <View style={styles.aiIcon}>
-          <MaterialCommunityIcons name="robot" size={20} color={theme.colors.primary} />
+          <MaterialCommunityIcons name="account-heart" size={20} color={theme.colors.primary} />
         </View>
       )}
       <Surface style={[styles.bubble, isAI ? styles.aiBubble : styles.userBubble, shadows.small]}>
         <Text style={[styles.messageText, isAI ? styles.aiText : styles.userText]}>
           {message.content}
         </Text>
-        <Text style={[styles.timestamp, isAI ? styles.aiTimestamp : styles.userTimestamp]}>
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </Text>
+        <View style={styles.bubbleFooter}>
+          <Text style={[styles.timestamp, isAI ? styles.aiTimestamp : styles.userTimestamp]}>
+            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+          {isAI && onSpeakPress && (
+            <TouchableOpacity onPress={onSpeakPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <MaterialCommunityIcons name="volume-high" size={14} color={theme.colors.onSurfaceVariant} />
+            </TouchableOpacity>
+          )}
+        </View>
       </Surface>
     </View>
   );
@@ -450,6 +856,10 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     marginTop: spacing.xs / 2,
   },
+  modeToggle: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 20,
+  },
   progressBar: {
     height: 3,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -466,6 +876,23 @@ const styles = StyleSheet.create({
   disclaimerBarText: {
     fontSize: 11,
     color: theme.colors.onSurfaceVariant,
+  },
+  speakingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.md,
+    backgroundColor: `${theme.colors.primary}10`,
+    borderBottomWidth: 1,
+    borderBottomColor: `${theme.colors.primary}20`,
+  },
+  speakingText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
+    flex: 1,
   },
   keyboardView: {
     flex: 1,
@@ -530,6 +957,11 @@ const styles = StyleSheet.create({
   userText: {
     color: '#FFFFFF',
   },
+  bubbleFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   timestamp: {
     fontSize: 11,
   },
@@ -569,5 +1001,63 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     margin: 0,
+  },
+  // Voice input styles
+  voiceInputContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  transcriptContainer: {
+    backgroundColor: `${theme.colors.primary}10`,
+    borderRadius: theme.roundness,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: `${theme.colors.primary}30`,
+  },
+  transcriptText: {
+    fontSize: 14,
+    color: theme.colors.onSurface,
+    fontStyle: 'italic',
+  },
+  voiceControls: {
+    alignItems: 'center',
+  },
+  micButtonOuter: {
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micButtonGlow: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  micButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${theme.colors.primary}15`,
+    borderWidth: 3,
+    borderColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  micButtonActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  micButtonDisabled: {
+    opacity: 0.4,
+  },
+  voiceHint: {
+    marginTop: spacing.sm,
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    fontWeight: '500',
   },
 });

@@ -8,6 +8,7 @@ type BucketName =
   | 'patientTriageData'
   | 'consultationNotes'
   | 'consultationHistory'
+  | 'consultationMessages'
   | 'users'
   | 'activeCalls'
   | 'analyticsEvents'
@@ -53,6 +54,7 @@ const targets: Record<BucketName, any> = {
   patientTriageData: {},
   consultationNotes: {},
   consultationHistory: {},
+  consultationMessages: {},
   users: [],
   activeCalls: {},
   analyticsEvents: [],
@@ -153,6 +155,7 @@ export const patientInsights: Record<string, any> = createTrackedProxy('patientI
 export const patientTriageData: Record<string, any> = createTrackedProxy('patientTriageData', targets.patientTriageData);
 export const consultationNotes: Record<string, any> = createTrackedProxy('consultationNotes', targets.consultationNotes);
 export const consultationHistory: Record<string, any[]> = createTrackedProxy('consultationHistory', targets.consultationHistory);
+export const consultationMessages: Record<string, any[]> = createTrackedProxy('consultationMessages', targets.consultationMessages);
 export const users: any[] = createTrackedProxy('users', targets.users);
 export const activeCalls: Record<string, any> = createTrackedProxy('activeCalls', targets.activeCalls);
 export const analyticsEvents: any[] = createTrackedProxy('analyticsEvents', targets.analyticsEvents);
@@ -182,6 +185,7 @@ export async function initStorage(): Promise<void> {
     'patientTriageData',
     'consultationNotes',
     'consultationHistory',
+    'consultationMessages',
     'users',
     'activeCalls',
     'analyticsEvents',
@@ -209,6 +213,7 @@ export async function flushStorage(): Promise<void> {
     'patientTriageData',
     'consultationNotes',
     'consultationHistory',
+    'consultationMessages',
     'users',
     'activeCalls',
     'analyticsEvents',

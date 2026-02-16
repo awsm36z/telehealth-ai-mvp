@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Alert, ScrollView, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, Alert, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { Text, IconButton, Surface, Button, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
+
+// Optional speech recognition (requires dev build)
+let ExpoSpeechRecognitionModule: any = null;
+try {
+  const speechRecognition = require('expo-speech-recognition');
+  ExpoSpeechRecognitionModule = speechRecognition.ExpoSpeechRecognitionModule;
+} catch {
+  // expo-speech-recognition not available
+}
+
+const LANGUAGE_LABELS: Record<string, string> = { en: 'English', fr: 'Fran\u00e7ais', ar: '\u0627\u0644\u0639\u0631\u0628\u064a\u0629' };
 
 /**
  * Check if a biometric value is abnormal and return status
@@ -62,7 +73,7 @@ function getStatusColor(status: 'normal' | 'warning' | 'critical'): string {
 }
 
 export default function DoctorVideoCallScreen({ route, navigation }: any) {
-  const { roomName, patientId, patientName, insights, biometrics, triageTranscript } = route.params;
+  const { roomName, patientId, patientName, patientLanguage, insights, biometrics, triageTranscript } = route.params;
   const { isTablet } = useResponsive();
 
   const [isConnecting, setIsConnecting] = useState(true);
@@ -72,12 +83,45 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [showNotesPanel, setShowNotesPanel] = useState(false);
   const [showAskAI, setShowAskAI] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showLiveAssist, setShowLiveAssist] = useState(true);
+  const [consultationHistoryData, setConsultationHistoryData] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [reportPrescriptions, setReportPrescriptions] = useState('');
+  const [reportInstructions, setReportInstructions] = useState('');
+  const [generatedReport, setGeneratedReport] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
   const [doctorNotes, setDoctorNotes] = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+
+  // Translation state
+  const [doctorLanguage, setDoctorLanguage] = useState('en');
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translatedTranscript, setTranslatedTranscript] = useState<string[]>([]);
+  const [translatedInsights, setTranslatedInsights] = useState<any>(null);
+  const [translatedHistory, setTranslatedHistory] = useState<Record<string, { summary?: string; doctorNotes?: string }>>({});
+  const [translating, setTranslating] = useState(false);
+  const languageMismatch = patientLanguage && doctorLanguage && patientLanguage !== doctorLanguage;
+
+  // Live transcript state
+  const [showLiveTranscript, setShowLiveTranscript] = useState(false);
+  const [liveTranscriptEntries, setLiveTranscriptEntries] = useState<{ speaker: string; text: string; timestamp: string }[]>([]);
+  const [isListening, setIsListening] = useState(false);
+  const [liveInsight, setLiveInsight] = useState('');
+  const [liveInsightLoading, setLiveInsightLoading] = useState(false);
+  const [manualTranscriptInput, setManualTranscriptInput] = useState('');
+  const [sttAvailable, setSttAvailable] = useState(false);
+  const liveTranscriptScrollRef = useRef<ScrollView>(null);
+  const [liveAssistData, setLiveAssistData] = useState<any>(null);
+  const [liveAssistLoading, setLiveAssistLoading] = useState(false);
+  const [medQuestion, setMedQuestion] = useState('');
+  const [medAnswer, setMedAnswer] = useState('');
+  const [medAnswerLoading, setMedAnswerLoading] = useState(false);
 
   const callStartTime = useRef<number | null>(null);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
@@ -88,6 +132,358 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   useEffect(() => {
     notesRef.current = doctorNotes;
   }, [doctorNotes]);
+
+  // Load doctor's language preference
+  useEffect(() => {
+    AsyncStorage.getItem('userLanguage').then((lang) => {
+      if (lang) setDoctorLanguage(lang);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (languageMismatch) {
+      setShowTranslated(true);
+    }
+  }, [languageMismatch]);
+
+  // Auto-translate when language mismatch is detected and panels are opened
+  const translateContent = async () => {
+    if (!languageMismatch || translating) return;
+    setTranslating(true);
+
+    try {
+      // Translate transcript messages
+      if (triageTranscript?.messages?.length > 0 && translatedTranscript.length === 0) {
+        const texts = triageTranscript.messages.map((msg: any) => msg.content);
+        const result = await api.translateBatch(texts, patientLanguage, doctorLanguage);
+        if (result.data?.translations) {
+          setTranslatedTranscript(result.data.translations);
+        }
+      }
+
+      // Translate insights
+      if (insights && !translatedInsights) {
+        const textsToTranslate: string[] = [];
+        const keys: string[] = [];
+
+        if (insights.summary) { textsToTranslate.push(insights.summary); keys.push('summary'); }
+        if (insights.keyFindings?.length) {
+          insights.keyFindings.forEach((f: string, i: number) => {
+            textsToTranslate.push(f);
+            keys.push(`finding_${i}`);
+          });
+        }
+        if (insights.possibleConditions?.length) {
+          insights.possibleConditions.forEach((c: any, i: number) => {
+            textsToTranslate.push(c.name);
+            keys.push(`cond_name_${i}`);
+            if (c.description) {
+              textsToTranslate.push(c.description);
+              keys.push(`cond_desc_${i}`);
+            }
+          });
+        }
+
+        if (textsToTranslate.length > 0) {
+          const result = await api.translateBatch(textsToTranslate, patientLanguage, doctorLanguage);
+          if (result.data?.translations) {
+            const t = result.data.translations;
+            const translated: any = {};
+            let idx = 0;
+
+            if (insights.summary) { translated.summary = t[idx++]; }
+            if (insights.keyFindings?.length) {
+              translated.keyFindings = insights.keyFindings.map(() => t[idx++]);
+            }
+            if (insights.possibleConditions?.length) {
+              translated.possibleConditions = insights.possibleConditions.map((c: any) => ({
+                ...c,
+                name: t[idx++],
+                description: c.description ? t[idx++] : c.description,
+              }));
+            }
+            setTranslatedInsights(translated);
+          }
+        }
+      }
+
+      // Translate consultation history summary + notes
+      if (consultationHistoryData.length > 0 && showHistory) {
+        const untranslated = consultationHistoryData.filter((c: any) => {
+          const key = String(c.id || c.completedAt || '');
+          return key && !translatedHistory[key] && (c.summary || c.doctorNotes);
+        });
+
+        for (const consultation of untranslated) {
+          const parts: string[] = [];
+          if (consultation.summary) parts.push(consultation.summary);
+          if (consultation.doctorNotes) parts.push(consultation.doctorNotes);
+          if (!parts.length) continue;
+
+          const result = await api.translateBatch(parts, patientLanguage, doctorLanguage);
+          if (result.data?.translations) {
+            const key = String(consultation.id || consultation.completedAt || '');
+            setTranslatedHistory((prev) => ({
+              ...prev,
+              [key]: {
+                summary: consultation.summary ? result.data.translations[0] : undefined,
+                doctorNotes: consultation.doctorNotes
+                  ? result.data.translations[consultation.summary ? 1 : 0]
+                  : undefined,
+              },
+            }));
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Translation failed:', error);
+    }
+
+    setTranslating(false);
+  };
+
+  useEffect(() => {
+    if (languageMismatch && showTranslated && (showTranscript || showNotes || showHistory)) {
+      translateContent();
+    }
+  }, [showTranslated, showTranscript, showNotes, showHistory, consultationHistoryData]);
+
+  // Load consultation history when panel is opened
+  const loadHistory = async () => {
+    if (consultationHistoryData.length > 0 || historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      const response = await api.getConsultationHistory(patientId);
+      if (response.data) {
+        setConsultationHistoryData(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to load history:', error);
+    }
+    setHistoryLoading(false);
+  };
+
+  useEffect(() => {
+    if (showHistory) loadHistory();
+  }, [showHistory]);
+
+  const handleGenerateReport = async () => {
+    setReportLoading(true);
+    setGeneratedReport('');
+    try {
+      const docName = await AsyncStorage.getItem('userName');
+      const response = await api.generateReport(
+        patientId,
+        docName || 'Doctor',
+        reportPrescriptions.trim() || undefined,
+        reportInstructions.trim() || undefined,
+      );
+      if (response.data?.report) {
+        setGeneratedReport(response.data.report);
+      } else {
+        setGeneratedReport(response.error || 'Failed to generate report.');
+      }
+    } catch (error) {
+      setGeneratedReport('Failed to connect to AI service.');
+    }
+    setReportLoading(false);
+  };
+
+  // Check STT availability on mount
+  useEffect(() => {
+    if (ExpoSpeechRecognitionModule) {
+      try {
+        const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+        setSttAvailable(!!available);
+      } catch {
+        setSttAvailable(false);
+      }
+    }
+  }, []);
+
+  // Speech recognition event listeners
+  useEffect(() => {
+    if (!ExpoSpeechRecognitionModule || !sttAvailable) return;
+
+    const handleResult = (event: any) => {
+      const transcript = event?.results?.[0]?.transcript || event?.value?.[0] || '';
+      if (transcript.trim()) {
+        addTranscriptEntry('Doctor', transcript.trim());
+      }
+    };
+
+    const handleEnd = () => {
+      // Restart if still in listening mode
+      if (isListening) {
+        try {
+          ExpoSpeechRecognitionModule.start({
+            lang: doctorLanguage === 'ar' ? 'ar-MA' : doctorLanguage === 'fr' ? 'fr-FR' : 'en-US',
+            interimResults: false,
+            continuous: true,
+          });
+        } catch {
+          setIsListening(false);
+        }
+      }
+    };
+
+    const handleError = () => {
+      // Ignore errors and try to restart
+      if (isListening) {
+        setTimeout(() => {
+          try {
+            ExpoSpeechRecognitionModule.start({
+              lang: doctorLanguage === 'ar' ? 'ar-MA' : doctorLanguage === 'fr' ? 'fr-FR' : 'en-US',
+              interimResults: false,
+              continuous: true,
+            });
+          } catch {
+            setIsListening(false);
+          }
+        }, 1000);
+      }
+    };
+
+    const resultSub = ExpoSpeechRecognitionModule.addListener?.('result', handleResult);
+    const endSub = ExpoSpeechRecognitionModule.addListener?.('end', handleEnd);
+    const errorSub = ExpoSpeechRecognitionModule.addListener?.('error', handleError);
+
+    return () => {
+      resultSub?.remove?.();
+      endSub?.remove?.();
+      errorSub?.remove?.();
+    };
+  }, [isListening, sttAvailable, doctorLanguage]);
+
+  const addTranscriptEntry = useCallback(async (speaker: string, text: string) => {
+    const entry = { speaker, text, timestamp: new Date().toISOString() };
+    setLiveTranscriptEntries((prev) => [...prev, entry]);
+
+    // Send to backend
+    try {
+      await api.addLiveTranscript(roomName, speaker, text);
+    } catch {
+      // Non-critical, entry is already shown locally
+    }
+
+    // Auto-scroll to bottom
+    setTimeout(() => {
+      liveTranscriptScrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [roomName]);
+
+  const startListening = async () => {
+    if (!ExpoSpeechRecognitionModule || !sttAvailable) {
+      Alert.alert(
+        'Speech Recognition Unavailable',
+        'Speech recognition requires a development build. You can type entries manually.'
+      );
+      return;
+    }
+
+    try {
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert('Permission Required', 'Microphone access is needed for live transcription.');
+        return;
+      }
+
+      ExpoSpeechRecognitionModule.start({
+        lang: doctorLanguage === 'ar' ? 'ar-MA' : doctorLanguage === 'fr' ? 'fr-FR' : 'en-US',
+        interimResults: false,
+        continuous: true,
+      });
+      setIsListening(true);
+    } catch {
+      Alert.alert('Error', 'Failed to start speech recognition.');
+    }
+  };
+
+  const stopListening = () => {
+    setIsListening(false);
+    if (ExpoSpeechRecognitionModule) {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch {
+        // Ignore
+      }
+    }
+  };
+
+  const handleManualTranscriptEntry = () => {
+    const text = manualTranscriptInput.trim();
+    if (!text) return;
+    addTranscriptEntry('Doctor', text);
+    setManualTranscriptInput('');
+  };
+
+  const handleAnalyzeConversation = async () => {
+    setLiveInsightLoading(true);
+    setLiveInsight('');
+    try {
+      const response = await api.analyzeLiveConversation(
+        roomName,
+        patientId,
+        patientLanguage === 'ar' ? 'MA' : undefined
+      );
+      if (response.data?.insight) {
+        setLiveInsight(response.data.insight);
+      } else {
+        setLiveInsight(response.error || 'Unable to analyze conversation.');
+      }
+    } catch {
+      setLiveInsight('Failed to connect to AI service.');
+    }
+    setLiveInsightLoading(false);
+  };
+
+  const refreshLiveAssist = useCallback(async () => {
+    setLiveAssistLoading(true);
+    try {
+      const locale = patientLanguage === 'ar' ? 'MA' : undefined;
+      const conversationSummary = liveTranscriptEntries
+        .slice(-10)
+        .map((entry) => `${entry.speaker}: ${entry.text}`)
+        .join('\n');
+
+      const [liveResponse, medResponse] = await Promise.all([
+        api.analyzeLiveConversation(roomName, patientId, locale),
+        api.getMedicationInsights({ patientId, locale, conversationSummary }),
+      ]);
+
+      setLiveAssistData({
+        ...(liveResponse.data || {}),
+        medication: medResponse.data || null,
+      });
+    } catch (error) {
+      console.error('Failed to refresh live assist:', error);
+    }
+    setLiveAssistLoading(false);
+  }, [roomName, patientId, patientLanguage, liveTranscriptEntries]);
+
+  const askMedicationInCall = async () => {
+    const question = medQuestion.trim();
+    if (!question) return;
+    setMedAnswerLoading(true);
+    setMedAnswer('');
+    try {
+      const locale = patientLanguage === 'ar' ? 'MA' : undefined;
+      const response = await api.askMedicationAI({ patientId, locale, question });
+      setMedAnswer(response.data?.answer || response.error || 'Unable to answer medication question.');
+    } catch (error) {
+      setMedAnswer('Unable to answer medication question.');
+    }
+    setMedAnswerLoading(false);
+  };
+
+  useEffect(() => {
+    if (!showLiveAssist) return;
+    refreshLiveAssist();
+    const interval = setInterval(() => {
+      refreshLiveAssist();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [showLiveAssist, refreshLiveAssist]);
 
   useEffect(() => {
     joinCall();
@@ -105,6 +501,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       // Save notes on unmount
       if (notesRef.current.trim()) {
         saveNotes(notesRef.current);
+      }
+      // Stop listening on unmount
+      if (ExpoSpeechRecognitionModule) {
+        try { ExpoSpeechRecognitionModule.stop(); } catch {}
       }
     };
   }, []);
@@ -180,10 +580,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         const callsResponse = await api.getActiveCalls();
         if (callsResponse.data) {
           const thisCall = callsResponse.data.find((c: any) => c.roomName === roomName);
-          if (thisCall && thisCall.status === 'waiting') {
+          if (thisCall && !thisCall.patientJoined) {
             Alert.alert(
               'Patient Status',
-              'The patient has not joined the video call yet. They will appear once they connect.'
+              'Patient not in room yet. They will appear once they connect.'
             );
           }
         }
@@ -240,7 +640,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               }
               // Record consultation in history
               const doctorName = await AsyncStorage.getItem('userName');
-              const completeResult = await api.completeConsultation(patientId, roomName, doctorName || 'Doctor');
+              const completeResult = await api.completeConsultation(
+                patientId,
+                roomName,
+                doctorName || 'Doctor',
+                doctorLanguage as any,
+                (patientLanguage || 'en') as any
+              );
               if (completeResult.error) {
                 console.error('Failed to record consultation:', completeResult.error);
                 Alert.alert('Warning', 'Consultation notes may not have been saved to patient history.');
@@ -248,6 +654,9 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 console.log('Consultation recorded for patient:', patientId);
               }
               await api.endVideoCall(roomName);
+              // Cleanup live transcript
+              stopListening();
+              api.clearLiveTranscript(roomName).catch(() => {});
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
               navigation.popToTop();
@@ -321,6 +730,19 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             <MaterialCommunityIcons name="circle" size={8} color="#4CAF50" />
             <Text style={styles.callDuration}>{formatDuration(callDuration)}</Text>
           </Surface>
+          {languageMismatch && (
+            <TouchableOpacity
+              style={[styles.translateBadge, showTranslated && styles.translateBadgeActive]}
+              onPress={() => setShowTranslated(!showTranslated)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="translate" size={14} color="#FFFFFF" />
+              <Text style={styles.translateBadgeText}>
+                {showTranslated ? LANGUAGE_LABELS[doctorLanguage] || doctorLanguage : LANGUAGE_LABELS[patientLanguage] || patientLanguage}
+              </Text>
+              {translating && <ActivityIndicator size={12} color="#FFFFFF" />}
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Panel Toggle Buttons */}
@@ -330,38 +752,169 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             size={24}
             iconColor="#FFFFFF"
             style={[styles.insightsButton, showTranscript && styles.insightsButtonActive]}
-            onPress={() => { setShowTranscript(!showTranscript); if (!showTranscript) { setShowNotes(false); setShowBiometrics(false); setShowNotesPanel(false); setShowAskAI(false); } }}
+            onPress={() => { setShowTranscript(!showTranscript); if (!showTranscript) { setShowNotes(false); setShowBiometrics(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
           />
           <IconButton
             icon="heart-pulse"
             size={24}
             iconColor="#FFFFFF"
             style={[styles.insightsButton, showBiometrics && styles.insightsButtonActive]}
-            onPress={() => { setShowBiometrics(!showBiometrics); if (!showBiometrics) { setShowNotes(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); } }}
+            onPress={() => { setShowBiometrics(!showBiometrics); if (!showBiometrics) { setShowNotes(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
           />
           <IconButton
             icon="brain"
             size={24}
             iconColor="#FFFFFF"
             style={[styles.insightsButton, showNotes && styles.insightsButtonActive]}
-            onPress={() => { setShowNotes(!showNotes); if (!showNotes) { setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); } }}
+            onPress={() => { setShowNotes(!showNotes); if (!showNotes) { setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
+          />
+          <IconButton
+            icon="history"
+            size={24}
+            iconColor="#FFFFFF"
+            style={[styles.insightsButton, showHistory && styles.insightsButtonActive]}
+            onPress={() => { setShowHistory(!showHistory); if (!showHistory) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
+          />
+          <IconButton
+            icon="stethoscope"
+            size={24}
+            iconColor="#FFFFFF"
+            style={[styles.insightsButton, showLiveAssist && styles.insightsButtonActive]}
+            onPress={() => { setShowLiveAssist(!showLiveAssist); if (!showLiveAssist) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); } }}
+          />
+          <IconButton
+            icon="microphone-message"
+            size={24}
+            iconColor="#FFFFFF"
+            style={[styles.insightsButton, showLiveTranscript && styles.insightsButtonActive]}
+            onPress={() => { setShowLiveTranscript(!showLiveTranscript); if (!showLiveTranscript) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }}
           />
           <IconButton
             icon="note-edit"
             size={24}
             iconColor="#FFFFFF"
             style={[styles.insightsButton, showNotesPanel && styles.insightsButtonActive]}
-            onPress={() => { setShowNotesPanel(!showNotesPanel); if (!showNotesPanel) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowAskAI(false); } }}
+            onPress={() => { setShowNotesPanel(!showNotesPanel); if (!showNotesPanel) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
           />
           <IconButton
             icon="robot"
             size={24}
             iconColor="#FFFFFF"
             style={[styles.insightsButton, showAskAI && styles.insightsButtonActive]}
-            onPress={() => { setShowAskAI(!showAskAI); if (!showAskAI) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); } }}
+            onPress={() => { setShowAskAI(!showAskAI); if (!showAskAI) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
+          />
+          <IconButton
+            icon="file-document-edit"
+            size={24}
+            iconColor="#FFFFFF"
+            style={[styles.insightsButton, showReport && styles.insightsButtonActive]}
+            onPress={() => { setShowReport(!showReport); if (!showReport) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
           />
         </View>
       </View>
+
+      {/* Live Clinical Assist Pane (default open) */}
+      {showLiveAssist && (
+        <View style={[styles.notesPanel, isTablet && { maxHeight: 520 }]}>
+          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
+            <View style={styles.insightsPanelHeader}>
+              <MaterialCommunityIcons name="stethoscope" size={20} color={theme.colors.primary} />
+              <Text style={styles.insightsPanelTitle}>Live Clinical Assist</Text>
+              {liveAssistLoading && <ActivityIndicator size={14} color={theme.colors.primary} />}
+              <IconButton icon="refresh" size={18} onPress={refreshLiveAssist} style={styles.closeInsights} />
+              <IconButton icon="close" size={18} onPress={() => setShowLiveAssist(false)} style={styles.closeInsights} />
+            </View>
+
+            <View style={styles.aiWarningBanner}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={14} color={theme.colors.warning} />
+              <Text style={styles.aiWarningText}>
+                Assistive output only. This is not a prescription. Doctor must verify before prescribing.
+              </Text>
+            </View>
+
+            <View style={styles.insightSection}>
+              <Text style={styles.insightLabel}>Live Summary</Text>
+              <Text style={styles.insightText}>{liveAssistData?.liveSummary || 'Waiting for call insights...'}</Text>
+            </View>
+
+            <View style={styles.insightSection}>
+              <Text style={styles.insightLabel}>Insights</Text>
+              {(liveAssistData?.insights || []).length ? (
+                liveAssistData.insights.map((item: string, index: number) => (
+                  <View key={`live-insight-${index}`} style={styles.findingRow}>
+                    <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.primary} />
+                    <Text style={styles.findingText}>{item}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.insightText}>No insights yet.</Text>
+              )}
+            </View>
+
+            <View style={styles.insightSection}>
+              <Text style={styles.insightLabel}>Suggested Questions</Text>
+              {(liveAssistData?.suggestedQuestions || []).length ? (
+                liveAssistData.suggestedQuestions.map((item: string, index: number) => (
+                  <Text key={`question-${index}`} style={styles.findingText}>• {item}</Text>
+                ))
+              ) : (
+                <Text style={styles.insightText}>No follow-up questions yet.</Text>
+              )}
+            </View>
+
+            <View style={styles.insightSection}>
+              <Text style={styles.insightLabel}>Possible Medication</Text>
+              {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length ? (
+                (liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
+                  <View key={`med-${index}`} style={styles.liveMedicationItem}>
+                    <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
+                    <Text style={styles.conditionDesc}>{item.rationale || 'Validate indication/contraindications.'}</Text>
+                    <View style={styles.historyConditions}>
+                      {item.market ? (
+                        <Chip mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
+                          {item.market}
+                        </Chip>
+                      ) : null}
+                      {item.confidence ? (
+                        <Chip mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
+                          Confidence: {item.confidence}
+                        </Chip>
+                      ) : null}
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.insightText}>No medication suggestions generated.</Text>
+              )}
+            </View>
+
+            <View style={styles.insightSection}>
+              <Text style={styles.insightLabel}>Ask Medication AI</Text>
+              <View style={styles.askAiInputRow}>
+                <TextInput
+                  style={styles.askAiInput}
+                  placeholder="Ask about alternatives, contraindications, interactions..."
+                  placeholderTextColor={theme.colors.onSurfaceVariant}
+                  value={medQuestion}
+                  onChangeText={setMedQuestion}
+                  onSubmitEditing={askMedicationInCall}
+                  returnKeyType="send"
+                />
+                <IconButton
+                  icon="send"
+                  size={22}
+                  iconColor="#FFFFFF"
+                  style={styles.askAiSend}
+                  onPress={askMedicationInCall}
+                  disabled={medAnswerLoading || !medQuestion.trim()}
+                />
+              </View>
+              {medAnswerLoading ? <Text style={styles.askAiLoading}>Thinking...</Text> : null}
+              {medAnswer ? <Text style={styles.insightText}>{medAnswer}</Text> : null}
+            </View>
+          </ScrollView>
+        </View>
+      )}
 
       {/* Chat Transcript Panel (Slide up) */}
       {showTranscript && (
@@ -370,6 +923,18 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             <View style={styles.insightsPanelHeader}>
               <MaterialCommunityIcons name="chat-processing" size={20} color={theme.colors.secondary} />
               <Text style={styles.insightsPanelTitle}>Triage Transcript</Text>
+              {languageMismatch && (
+                <TouchableOpacity
+                  style={[styles.translateToggle, showTranslated && styles.translateToggleActive]}
+                  onPress={() => setShowTranslated(!showTranslated)}
+                >
+                  <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
+                  <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
+                    {showTranslated ? 'Translated' : 'Translate'}
+                  </Text>
+                  {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
+                </TouchableOpacity>
+              )}
               <IconButton
                 icon="close"
                 size={18}
@@ -381,30 +946,38 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             {!triageTranscript?.messages || triageTranscript.messages.length === 0 ? (
               <Text style={styles.insightText}>No triage transcript available for this patient.</Text>
             ) : (
-              triageTranscript.messages.map((msg: any, index: number) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.transcriptBubble,
-                    msg.role === 'ai' ? styles.transcriptAi : styles.transcriptPatient,
-                  ]}
-                >
-                  <View style={styles.transcriptHeader}>
-                    <MaterialCommunityIcons
-                      name={msg.role === 'ai' ? 'robot' : 'account'}
-                      size={14}
-                      color={msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary}
-                    />
-                    <Text style={[
-                      styles.transcriptRole,
-                      { color: msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary },
-                    ]}>
-                      {msg.role === 'ai' ? 'AI Triage' : 'Patient'}
-                    </Text>
+              triageTranscript.messages.map((msg: any, index: number) => {
+                const content = showTranslated && translatedTranscript[index]
+                  ? translatedTranscript[index]
+                  : msg.content;
+                return (
+                  <View
+                    key={index}
+                    style={[
+                      styles.transcriptBubble,
+                      msg.role === 'ai' ? styles.transcriptAi : styles.transcriptPatient,
+                    ]}
+                  >
+                    <View style={styles.transcriptHeader}>
+                      <MaterialCommunityIcons
+                        name={msg.role === 'ai' ? 'robot' : 'account'}
+                        size={14}
+                        color={msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary}
+                      />
+                      <Text style={[
+                        styles.transcriptRole,
+                        { color: msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary },
+                      ]}>
+                        {msg.role === 'ai' ? 'AI Triage' : 'Patient'}
+                      </Text>
+                      {showTranslated && translatedTranscript[index] && (
+                        <MaterialCommunityIcons name="translate" size={10} color={theme.colors.onSurfaceVariant} />
+                      )}
+                    </View>
+                    <Text style={styles.transcriptMessage}>{content}</Text>
                   </View>
-                  <Text style={styles.transcriptMessage}>{msg.content}</Text>
-                </View>
-              ))
+                );
+              })
             )}
 
             {triageTranscript?.completedAt && (
@@ -536,6 +1109,71 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         </View>
       )}
 
+      {/* Patient History Panel */}
+      {showHistory && (
+        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
+          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
+            <View style={styles.insightsPanelHeader}>
+              <MaterialCommunityIcons name="history" size={20} color={theme.colors.primary} />
+              <Text style={styles.insightsPanelTitle}>Patient History</Text>
+              <IconButton
+                icon="close"
+                size={18}
+                onPress={() => setShowHistory(false)}
+                style={styles.closeInsights}
+              />
+            </View>
+
+            {historyLoading ? (
+              <View style={styles.historyLoading}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={styles.insightText}>Loading history...</Text>
+              </View>
+            ) : consultationHistoryData.length === 0 ? (
+              <Text style={styles.insightText}>No previous consultations found for this patient.</Text>
+            ) : (
+              consultationHistoryData.map((consultation: any, index: number) => (
+                <View key={consultation.id || index} style={styles.historyCard}>
+                  <View style={styles.historyCardHeader}>
+                    <MaterialCommunityIcons name="calendar" size={14} color={theme.colors.primary} />
+                    <Text style={styles.historyDate}>
+                      {new Date(consultation.completedAt).toLocaleDateString()}
+                    </Text>
+                    {consultation.doctorName && (
+                      <Text style={styles.historyDoctor}>Dr. {consultation.doctorName}</Text>
+                    )}
+                  </View>
+                  {consultation.summary && (
+                    <Text style={styles.historySummary}>
+                      {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.summary) ||
+                        consultation.summary}
+                    </Text>
+                  )}
+                  {consultation.possibleConditions?.length > 0 && (
+                    <View style={styles.historyConditions}>
+                      {consultation.possibleConditions.slice(0, 3).map((c: any, ci: number) => (
+                        <Chip key={ci} mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
+                          {c.name}
+                        </Chip>
+                      ))}
+                    </View>
+                  )}
+                  {consultation.doctorNotes && (
+                    <View style={styles.historyNotes}>
+                      <Text style={styles.insightLabel}>Doctor Notes</Text>
+                      <Text style={styles.historyNotesText}>
+                        {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.doctorNotes) ||
+                          consultation.doctorNotes}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      )}
+
       {/* AI Insights Panel (Slide up) */}
       {showNotes && !insights && (
         <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
@@ -554,12 +1192,26 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
           </View>
         </View>
       )}
-      {showNotes && insights && (
+      {showNotes && insights && (() => {
+        const displayInsights = showTranslated && translatedInsights ? { ...insights, ...translatedInsights } : insights;
+        return (
         <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
           <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.insightsPanelHeader}>
               <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
               <Text style={styles.insightsPanelTitle}>AI Insights</Text>
+              {languageMismatch && (
+                <TouchableOpacity
+                  style={[styles.translateToggle, showTranslated && styles.translateToggleActive]}
+                  onPress={() => setShowTranslated(!showTranslated)}
+                >
+                  <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
+                  <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
+                    {showTranslated ? 'Translated' : 'Translate'}
+                  </Text>
+                  {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
+                </TouchableOpacity>
+              )}
               <IconButton
                 icon="close"
                 size={18}
@@ -568,17 +1220,17 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               />
             </View>
 
-            {insights.summary && (
+            {displayInsights.summary && (
               <View style={styles.insightSection}>
                 <Text style={styles.insightLabel}>Summary</Text>
-                <Text style={styles.insightText}>{insights.summary}</Text>
+                <Text style={styles.insightText}>{displayInsights.summary}</Text>
               </View>
             )}
 
-            {insights.keyFindings && insights.keyFindings.length > 0 && (
+            {displayInsights.keyFindings && displayInsights.keyFindings.length > 0 && (
               <View style={styles.insightSection}>
                 <Text style={styles.insightLabel}>Key Findings</Text>
-                {insights.keyFindings.map((finding: string, index: number) => (
+                {displayInsights.keyFindings.map((finding: string, index: number) => (
                   <View key={index} style={styles.findingRow}>
                     <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.primary} />
                     <Text style={styles.findingText}>{finding}</Text>
@@ -587,10 +1239,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {insights.possibleConditions && insights.possibleConditions.length > 0 && (
+            {displayInsights.possibleConditions && displayInsights.possibleConditions.length > 0 && (
               <View style={styles.insightSection}>
                 <Text style={styles.insightLabel}>Possible Conditions</Text>
-                {insights.possibleConditions.map((condition: any, index: number) => (
+                {displayInsights.possibleConditions.map((condition: any, index: number) => (
                   <View key={index} style={styles.conditionRow}>
                     <Chip
                       mode="flat"
@@ -629,7 +1281,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             )}
           </ScrollView>
         </View>
-      )}
+        );
+      })()}
 
       {/* Doctor Notes Panel */}
       {showNotesPanel && (
@@ -709,6 +1362,194 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               <Text style={styles.insightText}>{aiAnswer}</Text>
             </ScrollView>
           ) : null}
+        </View>
+      )}
+
+      {/* Report Generation Panel */}
+      {showReport && (
+        <View style={[styles.notesPanel, isTablet && { maxHeight: 500 }]}>
+          <View style={styles.insightsPanelHeader}>
+            <MaterialCommunityIcons name="file-document-edit" size={20} color={theme.colors.primary} />
+            <Text style={styles.insightsPanelTitle}>Generate Report</Text>
+            <IconButton
+              icon="close"
+              size={18}
+              onPress={() => setShowReport(false)}
+              style={styles.closeInsights}
+            />
+          </View>
+
+          {!generatedReport ? (
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 280 }}>
+              <Text style={styles.reportLabel}>Prescriptions (optional)</Text>
+              <TextInput
+                style={styles.reportInput}
+                multiline
+                placeholder="e.g., Amoxicillin 500mg TID x 7 days..."
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+                value={reportPrescriptions}
+                onChangeText={setReportPrescriptions}
+                textAlignVertical="top"
+              />
+              <Text style={styles.reportLabel}>Instructions for patient (optional)</Text>
+              <TextInput
+                style={styles.reportInput}
+                multiline
+                placeholder="e.g., Rest for 48 hours, increase fluids..."
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+                value={reportInstructions}
+                onChangeText={setReportInstructions}
+                textAlignVertical="top"
+              />
+              <Button
+                mode="contained"
+                onPress={handleGenerateReport}
+                loading={reportLoading}
+                disabled={reportLoading}
+                icon="file-document"
+                style={styles.reportButton}
+              >
+                {reportLoading ? 'Generating...' : 'Generate Report'}
+              </Button>
+              <Text style={styles.reportHint}>
+                Report will include vitals, triage insights, your notes, and AI analysis.
+              </Text>
+            </ScrollView>
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 280 }}>
+              <Text style={styles.insightText}>{generatedReport}</Text>
+              <View style={styles.reportActions}>
+                <Button
+                  mode="outlined"
+                  onPress={() => setGeneratedReport('')}
+                  icon="refresh"
+                  compact
+                  style={styles.reportActionButton}
+                >
+                  Regenerate
+                </Button>
+              </View>
+            </ScrollView>
+          )}
+        </View>
+      )}
+
+      {/* Live Transcript Panel */}
+      {showLiveTranscript && (
+        <View style={[styles.notesPanel, isTablet && { maxHeight: 500 }]}>
+          <View style={styles.insightsPanelHeader}>
+            <MaterialCommunityIcons name="microphone-message" size={20} color={theme.colors.secondary} />
+            <Text style={styles.insightsPanelTitle}>Live Transcript</Text>
+            {isListening && (
+              <View style={styles.listeningBadge}>
+                <View style={styles.listeningDot} />
+                <Text style={styles.listeningText}>Listening...</Text>
+              </View>
+            )}
+            <IconButton
+              icon="close"
+              size={18}
+              onPress={() => { setShowLiveTranscript(false); stopListening(); }}
+              style={styles.closeInsights}
+            />
+          </View>
+
+          {/* Transcript entries */}
+          <ScrollView
+            ref={liveTranscriptScrollRef}
+            style={styles.liveTranscriptScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {liveTranscriptEntries.length === 0 ? (
+              <Text style={styles.insightText}>
+                No conversation recorded yet. {sttAvailable ? 'Tap "Start Listening" to begin.' : 'Type entries below to record the conversation.'}
+              </Text>
+            ) : (
+              liveTranscriptEntries.map((entry, index) => (
+                <View key={index} style={[styles.transcriptBubble, entry.speaker === 'Doctor' ? styles.transcriptAi : styles.transcriptPatient]}>
+                  <View style={styles.transcriptHeader}>
+                    <MaterialCommunityIcons
+                      name={entry.speaker === 'Doctor' ? 'doctor' : 'account'}
+                      size={14}
+                      color={entry.speaker === 'Doctor' ? theme.colors.primary : theme.colors.secondary}
+                    />
+                    <Text style={[styles.transcriptRole, { color: entry.speaker === 'Doctor' ? theme.colors.primary : theme.colors.secondary }]}>
+                      {entry.speaker}
+                    </Text>
+                    <Text style={styles.liveTimestamp}>
+                      {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <Text style={styles.transcriptMessage}>{entry.text}</Text>
+                </View>
+              ))
+            )}
+
+            {/* Live AI Insight */}
+            {liveInsight ? (
+              <View style={styles.liveInsightBox}>
+                <View style={styles.transcriptHeader}>
+                  <MaterialCommunityIcons name="lightbulb-on" size={14} color={theme.colors.warning} />
+                  <Text style={[styles.transcriptRole, { color: theme.colors.warning }]}>AI INSIGHT</Text>
+                </View>
+                <Text style={styles.transcriptMessage}>{liveInsight}</Text>
+              </View>
+            ) : null}
+          </ScrollView>
+
+          {/* Manual text entry */}
+          <View style={styles.askAiInputRow}>
+            <TextInput
+              style={styles.askAiInput}
+              placeholder="Type what's being said..."
+              placeholderTextColor={theme.colors.onSurfaceVariant}
+              value={manualTranscriptInput}
+              onChangeText={setManualTranscriptInput}
+              onSubmitEditing={handleManualTranscriptEntry}
+              returnKeyType="send"
+            />
+            <IconButton
+              icon="send"
+              size={22}
+              iconColor="#FFFFFF"
+              style={styles.askAiSend}
+              onPress={handleManualTranscriptEntry}
+              disabled={!manualTranscriptInput.trim()}
+            />
+          </View>
+
+          {/* Action buttons */}
+          <View style={styles.liveTranscriptActions}>
+            {sttAvailable && (
+              <TouchableOpacity
+                style={[styles.liveActionButton, isListening && styles.liveActionButtonActive]}
+                onPress={isListening ? stopListening : startListening}
+              >
+                <MaterialCommunityIcons
+                  name={isListening ? 'stop' : 'microphone'}
+                  size={16}
+                  color={isListening ? '#FFFFFF' : theme.colors.primary}
+                />
+                <Text style={[styles.liveActionText, isListening && { color: '#FFFFFF' }]}>
+                  {isListening ? 'Stop' : 'Start Listening'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.liveActionButton}
+              onPress={handleAnalyzeConversation}
+              disabled={liveInsightLoading || liveTranscriptEntries.length === 0}
+            >
+              {liveInsightLoading ? (
+                <ActivityIndicator size={14} color={theme.colors.primary} />
+              ) : (
+                <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={theme.colors.primary} />
+              )}
+              <Text style={styles.liveActionText}>
+                {liveInsightLoading ? 'Analyzing...' : 'Analyze'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -911,6 +1752,21 @@ const styles = StyleSheet.create({
   insightSection: {
     marginBottom: spacing.md,
   },
+  aiWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    backgroundColor: `${theme.colors.warning}12`,
+    padding: spacing.sm,
+    borderRadius: theme.roundness,
+    marginBottom: spacing.md,
+  },
+  aiWarningText: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.colors.onSurface,
+    lineHeight: 17,
+  },
   insightLabel: {
     fontSize: 12,
     fontWeight: '700',
@@ -961,6 +1817,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.onSurfaceVariant,
     lineHeight: 16,
+  },
+  liveMedicationItem: {
+    paddingVertical: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.outline,
   },
   controlsContainer: {
     paddingBottom: spacing.xl,
@@ -1156,5 +2017,205 @@ const styles = StyleSheet.create({
     backgroundColor: `${theme.colors.secondary}08`,
     padding: spacing.md,
     borderRadius: theme.roundness,
+  },
+  translateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: theme.roundness * 2,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  translateBadgeActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  translateBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  translateToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  translateToggleActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  translateToggleText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
+  historyLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  historyCard: {
+    padding: spacing.md,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: theme.roundness,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.primary,
+  },
+  historyCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  historyDate: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
+  historyDoctor: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    marginLeft: 'auto' as any,
+  },
+  historySummary: {
+    fontSize: 13,
+    color: theme.colors.onSurface,
+    lineHeight: 18,
+    marginBottom: spacing.xs,
+  },
+  historyConditions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: spacing.xs,
+  },
+  historyChip: {
+    height: 22,
+    backgroundColor: `${theme.colors.primary}10`,
+  },
+  historyChipText: {
+    fontSize: 10,
+    color: theme.colors.primary,
+  },
+  historyNotes: {
+    marginTop: spacing.xs,
+    padding: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: theme.roundness,
+  },
+  historyNotesText: {
+    fontSize: 12,
+    color: theme.colors.onSurface,
+    lineHeight: 16,
+  },
+  reportLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  reportInput: {
+    minHeight: 60,
+    maxHeight: 80,
+    fontSize: 13,
+    color: theme.colors.onSurface,
+    lineHeight: 18,
+    padding: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    marginBottom: spacing.sm,
+  },
+  reportButton: {
+    marginTop: spacing.sm,
+    borderRadius: theme.roundness,
+  },
+  reportHint: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    fontStyle: 'italic',
+  },
+  reportActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  reportActionButton: {
+    borderRadius: theme.roundness,
+  },
+  listeningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: `${theme.colors.error}15`,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: theme.roundness,
+  },
+  listeningDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.error,
+  },
+  listeningText: {
+    fontSize: 11,
+    color: theme.colors.error,
+    fontWeight: '600',
+  },
+  liveTranscriptScroll: {
+    maxHeight: 160,
+    marginBottom: spacing.sm,
+  },
+  liveTimestamp: {
+    fontSize: 9,
+    color: theme.colors.onSurfaceVariant,
+    marginLeft: 'auto' as any,
+  },
+  liveInsightBox: {
+    padding: spacing.md,
+    borderRadius: theme.roundness,
+    marginBottom: spacing.sm,
+    backgroundColor: `${theme.colors.warning}10`,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.warning,
+  },
+  liveTranscriptActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  liveActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  liveActionButtonActive: {
+    backgroundColor: theme.colors.error,
+    borderColor: theme.colors.error,
+  },
+  liveActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
   },
 });

@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import axios from 'axios';
-import { activeCalls } from '../storage';
+import { activeCalls, patientProfiles } from '../storage';
 
 const router = express.Router();
 
@@ -16,16 +16,29 @@ console.log('🎥 Daily.co API Key loaded:', DAILY_API_KEY ? `${DAILY_API_KEY.su
  */
 router.post('/create-room', async (req: Request, res: Response) => {
   try {
-    const { patientId, doctorId, sessionId } = req.body;
+    const { patientId, doctorId, sessionId, patientName } = req.body;
 
     if (!patientId) {
       return res.status(400).json({ message: 'Patient ID is required' });
     }
 
+    // Ensure a minimal patient profile exists so the doctor queue can display this patient.
+    if (!patientProfiles[patientId]) {
+      patientProfiles[patientId] = {
+        id: patientId,
+        name: patientName || `Patient ${patientId}`,
+        email: '',
+        createdAt: new Date().toISOString(),
+      };
+      console.log(`📝 Created minimal profile for patient ${patientId} during room creation`);
+    } else if (patientName && patientProfiles[patientId].name !== patientName) {
+      patientProfiles[patientId].name = patientName;
+    }
+
     // Reuse existing waiting/active room for this patient to avoid room divergence.
     const existingCall = Object.values(activeCalls).find(
       (call: any) =>
-        call.patientId === patientId &&
+        String(call.patientId) === String(patientId) &&
         (call.status === 'waiting' || call.status === 'active')
     ) as any;
 
@@ -72,6 +85,8 @@ router.post('/create-room', async (req: Request, res: Response) => {
       doctorId: doctorId || null,
       sessionId: sessionId || null,
       createdAt: new Date().toISOString(),
+      patientJoined: false,
+      doctorJoined: false,
       status: 'waiting', // waiting, active, completed
     };
 
@@ -95,6 +110,8 @@ router.post('/create-room', async (req: Request, res: Response) => {
         doctorId: req.body.doctorId || null,
         sessionId: req.body.sessionId || null,
         createdAt: new Date().toISOString(),
+        patientJoined: false,
+        doctorJoined: false,
         status: 'waiting',
       };
 
@@ -132,11 +149,18 @@ router.post('/join-room', async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Room not found' });
     }
 
-    // Update call status
-    if (userType === 'doctor' && callInfo.status === 'waiting') {
-      callInfo.status = 'active';
+    // Update participant presence and derive status.
+    if (userType === 'doctor') {
       callInfo.doctorId = userId;
-      callInfo.startedAt = new Date().toISOString();
+      callInfo.doctorJoined = true;
+      callInfo.status = 'active';
+      if (!callInfo.startedAt) {
+        callInfo.startedAt = new Date().toISOString();
+      }
+    }
+    if (userType === 'patient') {
+      callInfo.patientJoined = true;
+      callInfo.status = callInfo.doctorJoined ? 'active' : 'waiting';
     }
 
     // Create meeting token via Daily.co API
@@ -172,12 +196,18 @@ router.post('/join-room', async (req: Request, res: Response) => {
       });
     } catch (apiError: any) {
       // If no API key or API error, return mock token
-      if (!DAILY_API_KEY || apiError.response?.status === 401) {
+      if (!DAILY_API_KEY) {
         console.log(`⚠️  No Daily.co API key, returning mock token for ${userType}`);
         return res.json({
           token: `mock-token-${userId}-${Date.now()}`,
           roomUrl: callInfo.roomUrl,
           message: 'Mock token generated (no Daily.co API key)',
+        });
+      }
+
+      if (apiError.response?.status === 401) {
+        return res.status(500).json({
+          message: 'Daily API authentication failed. Check DAILY_API_KEY.',
         });
       }
       throw apiError;
@@ -204,6 +234,8 @@ router.get('/active-calls', async (req: Request, res: Response) => {
         patientId: call.patientId,
         doctorId: call.doctorId,
         status: call.status,
+        patientJoined: !!call.patientJoined,
+        doctorJoined: !!call.doctorJoined,
         createdAt: call.createdAt,
         startedAt: call.startedAt,
       }));

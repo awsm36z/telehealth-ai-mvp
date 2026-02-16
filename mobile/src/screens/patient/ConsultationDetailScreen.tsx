@@ -1,12 +1,18 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, Text, Chip, Divider, IconButton } from 'react-native-paper';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Card, Text, Chip, Divider, IconButton, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme, spacing, shadows } from '../../theme';
+import api from '../../utils/api';
+import { getCurrentLanguage, type LanguageCode } from '../../i18n';
 
 export default function ConsultationDetailScreen({ route, navigation }: any) {
   const consultation = route?.params?.consultation;
+  const [translatedSummary, setTranslatedSummary] = React.useState<string | null>(null);
+  const [translatedNotes, setTranslatedNotes] = React.useState<string | null>(null);
+  const currentLanguage = getCurrentLanguage() as LanguageCode;
 
   if (!consultation) {
     return (
@@ -36,6 +42,35 @@ export default function ConsultationDetailScreen({ route, navigation }: any) {
     });
   };
 
+  React.useEffect(() => {
+    const translateSharedContent = async () => {
+      const sourceLanguage =
+        (consultation?.doctorLanguage as LanguageCode) ||
+        (consultation?.patientLanguage as LanguageCode) ||
+        'en';
+
+      if (!consultation || sourceLanguage === currentLanguage) return;
+
+      try {
+        const items: string[] = [];
+        if (consultation.summary) items.push(consultation.summary);
+        if (consultation.notes || consultation.doctorNotes) items.push(consultation.notes || consultation.doctorNotes);
+        if (!items.length) return;
+
+        const tr = await api.translateBatch(items, sourceLanguage, currentLanguage);
+        if (tr.data?.translations) {
+          let idx = 0;
+          if (consultation.summary) setTranslatedSummary(tr.data.translations[idx++]);
+          if (consultation.notes || consultation.doctorNotes) setTranslatedNotes(tr.data.translations[idx++]);
+        }
+      } catch {
+        // Keep original text if translation fails.
+      }
+    };
+
+    translateSharedContent();
+  }, [consultation, currentLanguage]);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -57,7 +92,7 @@ export default function ConsultationDetailScreen({ route, navigation }: any) {
             ) : null}
             <Divider style={styles.divider} />
             <Text style={styles.sectionLabel}>Visit Summary</Text>
-            <Text style={styles.sectionText}>{consultation.summary || 'No summary provided.'}</Text>
+            <Text style={styles.sectionText}>{translatedSummary || consultation.summary || 'No summary provided.'}</Text>
           </Card.Content>
         </Card>
 
@@ -65,8 +100,24 @@ export default function ConsultationDetailScreen({ route, navigation }: any) {
           <Card.Content>
             <Text style={styles.sectionLabel}>Doctor Notes</Text>
             <Text style={styles.sectionText}>
-              {consultation.notes || consultation.doctorNotes || 'No doctor notes were added.'}
+              {translatedNotes || consultation.notes || consultation.doctorNotes || 'No doctor notes were added.'}
             </Text>
+            <Button
+              mode="outlined"
+              icon="message-outline"
+              style={styles.messageButton}
+              onPress={async () => {
+                const patientId = consultation.patientId || (await AsyncStorage.getItem('userId'));
+                if (!patientId) return;
+                navigation.navigate('AsyncMessages', {
+                  patientId,
+                  senderType: 'patient',
+                  title: 'Doctor Office Follow-up',
+                });
+              }}
+            >
+              Message Doctor Office
+            </Button>
           </Card.Content>
         </Card>
 
@@ -192,6 +243,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: theme.colors.onSurface,
+  },
+  messageButton: {
+    marginTop: spacing.md,
+    alignSelf: 'flex-start',
   },
   chipsRow: {
     flexDirection: 'row',

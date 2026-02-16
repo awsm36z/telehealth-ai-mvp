@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text, Card, Button, Avatar, Surface, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,13 +11,12 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
 
-const { width } = Dimensions.get('window');
 const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default function PatientHomeScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation();
-  const { contentContainerStyle } = useResponsive();
+  const { contentContainerStyle, isTablet, isLandscape } = useResponsive();
   const [userName, setUserName] = useState('Patient');
   const [biometrics, setBiometrics] = useState<any>(null);
   const [recentCompletedTriage, setRecentCompletedTriage] = useState<any>(null);
@@ -198,15 +197,26 @@ export default function PatientHomeScreen() {
       const userId = await AsyncStorage.getItem('userId');
       if (!userId) return;
 
+      // Try standalone biometrics first
       const response = await api.getBiometrics(userId);
       const latestBiometrics = response.data;
 
-      if (response.error || !hasBiometricData(latestBiometrics)) {
-        setBiometrics(null);
+      if (!response.error && hasBiometricData(latestBiometrics)) {
+        setBiometrics(latestBiometrics);
         return;
       }
 
-      setBiometrics(latestBiometrics);
+      // Fall back to latest consultation's biometrics snapshot
+      const historyResponse = await api.getConsultationHistory(userId);
+      if (historyResponse.data && Array.isArray(historyResponse.data) && historyResponse.data.length > 0) {
+        const latest = historyResponse.data[historyResponse.data.length - 1];
+        if (hasBiometricData(latest.biometricsSnapshot)) {
+          setBiometrics(latest.biometricsSnapshot);
+          return;
+        }
+      }
+
+      setBiometrics(null);
     } catch (error) {
       console.error('Error checking biometrics:', error);
     }
@@ -257,6 +267,7 @@ export default function PatientHomeScreen() {
               description={t('home.getdiagnosed')}
               color={theme.colors.primary}
               onPress={startConsultationFlow}
+              isTablet={isTablet}
             />
             <QuickActionCard
               icon="heart-pulse"
@@ -264,6 +275,7 @@ export default function PatientHomeScreen() {
               description={t('home.recordVitals')}
               color={theme.colors.secondary}
               onPress={() => navigation.navigate('BiometricEntry' as never)}
+              isTablet={isTablet}
             />
           </View>
           {activeConsultation?.roomName && (
@@ -424,16 +436,16 @@ export default function PatientHomeScreen() {
       <FAB
         icon="plus"
         label={t('home.newConsultation')}
-        style={styles.fab}
+        style={[styles.fab, isTablet && styles.fabTablet, isLandscape && styles.fabLandscape]}
         onPress={startConsultationFlow}
       />
     </SafeAreaView>
   );
 }
 
-function QuickActionCard({ icon, title, description, color, onPress }: any) {
+function QuickActionCard({ icon, title, description, color, onPress, isTablet }: any) {
   return (
-    <TouchableOpacity style={styles.quickActionCard} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity style={[styles.quickActionCard, isTablet && styles.quickActionCardTablet]} onPress={onPress} activeOpacity={0.7}>
       <Surface style={[styles.quickActionSurface, shadows.medium]}>
         <View style={[styles.quickActionIcon, { backgroundColor: `${color}15` }]}>
           <MaterialCommunityIcons name={icon} size={32} color={color} />
@@ -563,6 +575,9 @@ const styles = StyleSheet.create({
   },
   quickActionCard: {
     flex: 1,
+  },
+  quickActionCardTablet: {
+    minHeight: 170,
   },
   quickActionSurface: {
     padding: spacing.lg,
@@ -696,8 +711,15 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: spacing.lg,
-    bottom: spacing.sm,
+    bottom: 2,
     backgroundColor: theme.colors.primary,
+  },
+  fabTablet: {
+    bottom: spacing.sm,
+    right: spacing.xl,
+  },
+  fabLandscape: {
+    bottom: spacing.md,
   },
   emptyStateContent: {
     alignItems: 'center',

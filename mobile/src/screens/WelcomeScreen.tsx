@@ -1,13 +1,18 @@
 import React from 'react';
-import { View, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { Button, Text } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing } from '../theme';
+import BrandLogo from '../components/BrandLogo';
 
 const { width } = Dimensions.get('window');
 
 export default function WelcomeScreen({ navigation }: any) {
+  const { t } = useTranslation();
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
@@ -20,21 +25,18 @@ export default function WelcomeScreen({ navigation }: any) {
       <View style={styles.content}>
         <View style={styles.heroSection}>
           <View style={styles.iconContainer}>
-            <Text style={styles.heroIcon}>🩺</Text>
+            <BrandLogo size={102} />
           </View>
-          <Text style={styles.title}>Welcome to{'\n'}TeleHealth AI</Text>
-          <Text style={styles.description}>
-            AI-powered health consultations{'\n'}
-            connecting you with doctors{'\n'}
-            anytime, anywhere
-          </Text>
+          <Text style={styles.title}>{t('welcome.title')}</Text>
+          <Text style={styles.description}>{t('welcome.subtitle')}</Text>
+          <Text style={styles.fullName}>Vitali Intelligent Health</Text>
         </View>
 
         <View style={styles.featuresSection}>
-          <FeatureItem icon="💬" text="Smart symptom assessment" />
-          <FeatureItem icon="📊" text="Real-time health insights" />
-          <FeatureItem icon="🎥" text="Video consultations" />
-          <FeatureItem icon="🔒" text="Secure & HIPAA compliant" />
+          <FeatureItem iconName="brain" text={t('welcome.feature1Description')} />
+          <FeatureItem iconName="video" text={t('welcome.feature2Description')} />
+          <FeatureItem iconName="chart-line" text={t('welcome.feature3Description')} />
+          <FeatureItem iconName="shield-check" text={t('welcome.feature3Title')} />
         </View>
 
         <View style={styles.buttonSection}>
@@ -45,7 +47,7 @@ export default function WelcomeScreen({ navigation }: any) {
             contentStyle={styles.buttonContent}
             labelStyle={styles.primaryButtonLabel}
           >
-            Get Started
+            {t('welcome.getStarted')}
           </Button>
           <Button
             mode="outlined"
@@ -55,7 +57,7 @@ export default function WelcomeScreen({ navigation }: any) {
             labelStyle={styles.secondaryButtonLabel}
             textColor="#FFFFFF"
           >
-            Sign In
+            {t('welcome.signIn')}
           </Button>
         </View>
       </View>
@@ -63,10 +65,10 @@ export default function WelcomeScreen({ navigation }: any) {
   );
 }
 
-function FeatureItem({ icon, text }: { icon: string; text: string }) {
+function FeatureItem({ iconName, text }: { iconName: string; text: string }) {
   return (
     <View style={styles.featureItem}>
-      <Text style={styles.featureIcon}>{icon}</Text>
+      <MaterialCommunityIcons name={iconName as any} size={22} color="rgba(255, 255, 255, 0.9)" />
       <Text style={styles.featureText}>{text}</Text>
     </View>
   );
@@ -87,16 +89,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
   },
   iconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
     marginBottom: spacing.lg,
-  },
-  heroIcon: {
-    fontSize: 50,
   },
   title: {
     fontSize: 34,
@@ -112,22 +105,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
   },
+  fullName: {
+    marginTop: spacing.sm,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.86)',
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
   featuresSection: {
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderRadius: theme.roundness * 2,
     padding: spacing.lg,
-    backdropFilter: 'blur(10px)',
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.md,
   },
-  featureIcon: {
-    fontSize: 24,
-    marginRight: spacing.md,
-  },
   featureText: {
+    marginLeft: spacing.md,
     fontSize: 16,
     color: '#FFFFFF',
     fontWeight: '500',

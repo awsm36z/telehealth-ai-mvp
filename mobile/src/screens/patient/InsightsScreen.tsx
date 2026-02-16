@@ -8,6 +8,8 @@ import { theme, spacing, shadows } from '../../theme';
 
 export default function InsightsScreen({ route, navigation }: any) {
   const { insights } = route.params || {};
+  const fromWaitingRoom = !!route.params?.fromWaitingRoom;
+  const fromTriageComplete = !!route.params?.fromTriageComplete;
 
   // Mock insights data (would come from API)
   const mockInsights = {
@@ -45,6 +47,15 @@ export default function InsightsScreen({ route, navigation }: any) {
   const data = insights || mockInsights;
 
   const handleConsultation = () => {
+    if (fromWaitingRoom) {
+      navigation.navigate('WaitingRoom', {
+        triageData: route.params?.triageData,
+        insights: data,
+        roomName: route.params?.roomName,
+      });
+      return;
+    }
+
     navigation.navigate('WaitingRoom', {
       triageData: route.params?.triageData,
       insights: data,
@@ -144,19 +155,25 @@ export default function InsightsScreen({ route, navigation }: any) {
             style={styles.ctaButton}
             contentStyle={styles.buttonContent}
             labelStyle={styles.buttonLabel}
-            icon="video"
+            icon={fromWaitingRoom ? 'arrow-left' : 'video'}
           >
-            Start Video Consultation
+            {fromWaitingRoom
+              ? 'Back to Waiting Room'
+              : fromTriageComplete
+                ? 'Continue to Waiting Room'
+                : 'Start Video Consultation'}
           </Button>
 
-          <Button
-            mode="outlined"
-            onPress={() => navigation.navigate('Home')}
-            style={styles.secondaryButton}
-            contentStyle={styles.buttonContent}
-          >
-            Save for Later
-          </Button>
+          {!fromWaitingRoom && (
+            <Button
+              mode="outlined"
+              onPress={() => navigation.navigate('Home')}
+              style={styles.secondaryButton}
+              contentStyle={styles.buttonContent}
+            >
+              Save for Later
+            </Button>
+          )}
 
           <View style={{ height: spacing.xl }} />
         </View>
@@ -169,7 +186,7 @@ function SectionHeader({ icon, title }: { icon: string; title: string }) {
   return (
     <View style={styles.sectionHeader}>
       <View style={styles.sectionIconContainer}>
-        <MaterialCommunityIcons name={icon} size={24} color={theme.colors.primary} />
+        <MaterialCommunityIcons name={icon as any} size={24} color={theme.colors.primary} />
       </View>
       <Text style={styles.sectionTitle}>{title}</Text>
     </View>

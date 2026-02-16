@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { theme, spacing } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import { LANGUAGES, changeLanguage, getCurrentLanguage, type LanguageCode } from '../../i18n';
+import api from '../../utils/api';
 
 export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
@@ -14,6 +15,7 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
   const [userName, setUserName] = useState('Doctor');
   const [userEmail, setUserEmail] = useState('doctor@email.com');
   const [languageMenuVisible, setLanguageMenuVisible] = useState(false);
+  const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode>(getCurrentLanguage());
 
   useEffect(() => {
     loadProfileData();
@@ -21,9 +23,10 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
 
   const loadProfileData = async () => {
     try {
-      const [storedName, storedEmail] = await Promise.all([
+      const [storedName, storedEmail, storedUserId] = await Promise.all([
         AsyncStorage.getItem('userName'),
         AsyncStorage.getItem('userEmail'),
+        AsyncStorage.getItem('userId'),
       ]);
 
       if (storedName?.trim()) {
@@ -33,6 +36,18 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
       if (storedEmail?.trim()) {
         setUserEmail(storedEmail.trim());
       }
+
+      if (storedUserId) {
+        const profileRes = await api.getUserProfile(storedUserId, 'doctor');
+        if (profileRes.data?.language && ['en', 'fr', 'ar'].includes(profileRes.data.language)) {
+          const lang = profileRes.data.language as LanguageCode;
+          setPreferredLanguage(lang);
+          if (lang !== getCurrentLanguage()) {
+            await changeLanguage(lang);
+          }
+          await AsyncStorage.setItem('userLanguage', lang);
+        }
+      }
     } catch (error) {
       console.error('Error loading doctor profile data:', error);
     }
@@ -40,10 +55,16 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
 
   const handleLanguageChange = async (code: LanguageCode) => {
     await changeLanguage(code);
+    setPreferredLanguage(code);
+    await AsyncStorage.setItem('userLanguage', code);
+    const userId = await AsyncStorage.getItem('userId');
+    if (userId) {
+      await api.updateUserLanguage(userId, 'doctor', code);
+    }
     setLanguageMenuVisible(false);
   };
 
-  const currentLang = LANGUAGES.find((l) => l.code === getCurrentLanguage());
+  const currentLang = LANGUAGES.find((l) => l.code === preferredLanguage);
 
   const avatarLabel = userName
     .split(' ')
@@ -96,7 +117,7 @@ export default function DoctorProfileScreen({ onLogout }: { onLogout: () => void
                 key={lang.code}
                 onPress={() => handleLanguageChange(lang.code as LanguageCode)}
                 title={`${lang.nativeLabel} (${lang.label})`}
-                leadingIcon={getCurrentLanguage() === lang.code ? 'check' : undefined}
+                leadingIcon={preferredLanguage === lang.code ? 'check' : undefined}
               />
             ))}
           </Menu>

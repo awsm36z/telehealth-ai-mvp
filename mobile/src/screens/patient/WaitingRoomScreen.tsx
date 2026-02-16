@@ -123,10 +123,18 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
     }
   };
 
+  const reviewInsights = () => {
+    navigation.navigate('InsightsScreen', {
+      insights,
+      triageData,
+      fromWaitingRoom: true,
+      roomName,
+    });
+  };
+
   const cancelWaiting = () => {
-    if (roomName) {
-      api.endVideoCall(roomName);
-    }
+    // Don't end the video call — keep the room alive so the patient
+    // can resume from the home screen "Continue Consultation" button.
     navigation.navigate('PatientHome');
   };
 
@@ -193,6 +201,14 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
               <Text style={styles.infoCardText}>
                 {t('waitingRoom.insightsDescription')}
               </Text>
+              <Button
+                mode="text"
+                icon="file-document-outline"
+                onPress={reviewInsights}
+                style={styles.reviewInsightsButton}
+              >
+                Review AI Insights
+              </Button>
             </Surface>
           )}
 
@@ -337,6 +353,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.onSurfaceVariant,
     lineHeight: 18,
+  },
+  reviewInsightsButton: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    marginLeft: -6,
   },
   bottomSection: {
     paddingBottom: spacing.xl,

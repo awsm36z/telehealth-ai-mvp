@@ -7,9 +7,11 @@ import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
+import { useResponsive } from '../../hooks/useResponsive';
 
 export default function VideoCallScreen({ route, navigation }: any) {
   const { roomName, patientId } = route.params;
+  const { isTablet } = useResponsive();
 
   const [isConnecting, setIsConnecting] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
@@ -170,7 +172,7 @@ export default function VideoCallScreen({ route, navigation }: any) {
       </View>
 
       <View style={styles.controlsContainer}>
-        <Surface style={[styles.controlsPanel, shadows.large]}>
+        <Surface style={[styles.controlsPanel, shadows.large, isTablet && styles.controlsPanelTablet]}>
           <View style={styles.controlButton}>
             <IconButton
               icon="information"
@@ -277,6 +279,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     borderRadius: theme.roundness * 3,
     backgroundColor: 'rgba(20, 20, 20, 0.95)',
+  },
+  controlsPanelTablet: {
+    maxWidth: 520,
+    alignSelf: 'center',
+    width: '100%',
   },
   controlButton: {
     alignItems: 'center',

@@ -304,7 +304,7 @@ function generateSummary(results: EvalResult[]): EvalSummary {
  */
 function printReport(results: EvalResult[], summary: EvalSummary) {
   console.log('\n' + '='.repeat(80));
-  console.log('📊  TELEHEALTH AI EVALUATION REPORT');
+  console.log('📊  VITALI EVALUATION REPORT');
   console.log('='.repeat(80));
   
   console.log(`\n📈  OVERALL RESULTS:`);
@@ -382,7 +382,7 @@ function saveReport(results: EvalResult[], summary: EvalSummary) {
  * Main eval runner
  */
 async function main() {
-  console.log('🚀  Starting TeleHealth AI Evaluation Suite\n');
+  console.log('🚀  Starting Vitali Evaluation Suite\n');
   console.log(`Testing against: ${API_URL}`);
   console.log(`Total scenarios: ${testScenarios.length}\n`);
 

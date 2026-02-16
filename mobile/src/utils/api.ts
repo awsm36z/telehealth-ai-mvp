@@ -1,15 +1,26 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 const DEFAULT_LOCAL_BASE_URL = Platform.OS === 'android'
   ? 'http://10.0.2.2:3000/api'
   : 'http://localhost:3000/api';
 
+const DEFAULT_CLOUD_BASE_URL = 'https://telehealth-backend-cn5a.onrender.com/api';
 const ENV_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
+const EXTRA_BASE_URL = ((Constants.expoConfig as any)?.extra?.apiBaseUrl || '').trim();
 
 const getBaseURL = () => {
   if (ENV_BASE_URL) {
     return ENV_BASE_URL.replace(/\/$/, '');
+  }
+
+  if (EXTRA_BASE_URL) {
+    return EXTRA_BASE_URL.replace(/\/$/, '');
+  }
+
+  if (!__DEV__) {
+    return DEFAULT_CLOUD_BASE_URL;
   }
 
   return DEFAULT_LOCAL_BASE_URL;
@@ -69,7 +80,7 @@ const fetchWithTimeout = async (
 // API Methods
 const api = {
   // Authentication
-  login: async (email: string, password: string, userType: 'patient' | 'doctor') => {
+  login: async (email: string, password: string, userType: 'patient' | 'doctor', language?: string) => {
     try {
       const response = await fetchWithTimeout(`${API_URL}/auth/login`, {
         method: 'POST',
@@ -77,6 +88,7 @@ const api = {
           email,
           password,
           userType,
+          language,
         }),
       });
 
@@ -92,6 +104,12 @@ const api = {
       return { data, error: null };
     } catch (error: any) {
       console.error('Login error:', error.message);
+      if (error.message?.includes('Network request failed') || error.name === 'AbortError') {
+        return {
+          data: null,
+          error: `Cannot connect to server (${API_URL}).`,
+        };
+      }
       return {
         data: null,
         error: error.message || 'Login failed',
@@ -118,10 +136,56 @@ const api = {
       return { data, error: null };
     } catch (error: any) {
       console.error('Registration error:', error.message);
+      if (error.message?.includes('Network request failed') || error.name === 'AbortError') {
+        return {
+          data: null,
+          error: `Cannot connect to server (${API_URL}).`,
+        };
+      }
       return {
         data: null,
         error: error.message || 'Registration failed',
       };
+    }
+  },
+
+  getUserProfile: async (userId: string, userType: 'patient' | 'doctor') => {
+    try {
+      const response = await fetchWithTimeout(
+        `${API_URL}/auth/profile/${encodeURIComponent(userId)}?userType=${encodeURIComponent(userType)}`,
+        {
+          method: 'GET',
+        },
+        30000,
+        true
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to fetch profile' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get profile error:', error.message);
+      return { data: null, error: error.message || 'Failed to fetch profile' };
+    }
+  },
+
+  updateUserLanguage: async (userId: string, userType: 'patient' | 'doctor', language: 'en' | 'fr' | 'ar') => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/auth/profile/${encodeURIComponent(userId)}/language`, {
+        method: 'PUT',
+        body: JSON.stringify({ userType, language }),
+      }, 30000, true);
+
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to update language' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Update language error:', error.message);
+      return { data: null, error: error.message || 'Failed to update language' };
     }
   },
 
@@ -353,6 +417,111 @@ const api = {
     }
   },
 
+  getMedicationInsights: async (payload: { patientId?: string; locale?: string; conversationSummary?: string }) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/medication-assist/insights`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, 45000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const routeMissing = response.status === 404 || String(data.message || '').toLowerCase().includes('route');
+        if (routeMissing) {
+          // Backward-compatible fallback for older backends that only expose /ai-assist/ask.
+          const fallbackResponse = await fetchWithTimeout(`${API_URL}/ai-assist/ask`, {
+            method: 'POST',
+            body: JSON.stringify({
+              patientId: payload.patientId,
+              question:
+                `Provide concise clinical medication support for this consultation context.` +
+                ` Locale: ${payload.locale || 'global'}.` +
+                ` Conversation summary: ${payload.conversationSummary || 'N/A'}.` +
+                ` Include: summary, considerations, contraindications, and possible medication options.` +
+                ` This is assistive only, not a prescription.`,
+            }),
+          }, 45000, true);
+
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackResponse.ok) {
+            return {
+              data: {
+                summary: fallbackData.answer || 'Medication guidance generated.',
+                insights: [],
+                suggestedQuestions: [],
+                possibleMedication: [],
+                considerations: [],
+                contraindications: [],
+                provenance: 'ai-assist fallback',
+                confidence: 'medium',
+                disclaimer:
+                  'AI assist only. This is not a prescription. Doctor must independently verify all facts before prescribing.',
+              },
+              error: null,
+            };
+          }
+        }
+        return { data: null, error: data.message || 'Failed to get medication insights' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Medication insights error:', error.message);
+      return { data: null, error: error.message || 'Failed to get medication insights' };
+    }
+  },
+
+  askMedicationAI: async (payload: { patientId?: string; locale?: string; question: string }) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/medication-assist/chat`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, 45000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const routeMissing = response.status === 404 || String(data.message || '').toLowerCase().includes('route');
+        if (routeMissing) {
+          // Backward-compatible fallback for deployments without medication-assist route.
+          const fallbackResponse = await fetchWithTimeout(`${API_URL}/ai-assist/ask`, {
+            method: 'POST',
+            body: JSON.stringify({
+              patientId: payload.patientId,
+              question:
+                `${payload.question}\n\n` +
+                `Context: medication research for doctor workflow. Locale: ${payload.locale || 'global'}.\n` +
+                `Important: this is assistive only, not a prescription. Include safety checks and contraindication reminders.`,
+            }),
+          }, 45000, true);
+          const fallbackData = await fallbackResponse.json();
+
+          if (!fallbackResponse.ok) {
+            return { data: null, error: fallbackData.message || 'Failed to query medication assistant' };
+          }
+
+          return {
+            data: {
+              answer: fallbackData.answer,
+              disclaimer:
+                'AI assist only. This is not a prescription. Doctor must independently verify all facts before prescribing.',
+              confidence: 'medium',
+              provenance: 'ai-assist fallback',
+            },
+            error: null,
+          };
+        }
+        return { data: null, error: data.message || 'Failed to query medication assistant' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Medication chat error:', error.message);
+      return { data: null, error: error.message || 'Failed to query medication assistant' };
+    }
+  },
+
   // Consultation Notes
   saveConsultationNotes: async (patientId: string, notes: string, roomName?: string) => {
     try {
@@ -380,11 +549,17 @@ const api = {
     }
   },
 
-  completeConsultation: async (patientId: string, roomName?: string, doctorName?: string) => {
+  completeConsultation: async (
+    patientId: string,
+    roomName?: string,
+    doctorName?: string,
+    doctorLanguage?: 'en' | 'fr' | 'ar',
+    patientLanguage?: 'en' | 'fr' | 'ar'
+  ) => {
     try {
       const response = await fetchWithTimeout(`${API_URL}/consultations/${patientId}/complete`, {
         method: 'POST',
-        body: JSON.stringify({ roomName, doctorName }),
+        body: JSON.stringify({ roomName, doctorName, doctorLanguage, patientLanguage }),
       }, 30000, true);
 
       const data = await response.json();
@@ -431,12 +606,48 @@ const api = {
     }
   },
 
+  getMessageThread: async (patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/messages/${encodeURIComponent(patientId)}`, {
+        method: 'GET',
+      }, 30000, true);
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to get message thread' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get message thread error:', error.message);
+      return { data: null, error: error.message || 'Failed to get message thread' };
+    }
+  },
+
+  postThreadMessage: async (
+    patientId: string,
+    payload: { senderType: 'patient' | 'doctor'; senderName?: string; senderLanguage?: 'en' | 'fr' | 'ar'; message: string }
+  ) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/messages/${encodeURIComponent(patientId)}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, 30000, true);
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to post message' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Post message error:', error.message);
+      return { data: null, error: error.message || 'Failed to post message' };
+    }
+  },
+
   // Video Calls
-  createVideoRoom: async (patientId: string, sessionId?: string) => {
+  createVideoRoom: async (patientId: string, sessionId?: string, patientName?: string) => {
     try {
       const response = await fetchWithTimeout(`${API_URL}/video/create-room`, {
         method: 'POST',
-        body: JSON.stringify({ patientId, sessionId }),
+        body: JSON.stringify({ patientId, sessionId, patientName }),
       }, 30000, true);
 
       const data = await response.json();
@@ -543,6 +754,165 @@ const api = {
       return {
         data: null,
         error: error.message || 'Failed to get active calls',
+      };
+    }
+  },
+
+  // Translation
+  translate: async (text: string, from: string, to: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/translate`, {
+        method: 'POST',
+        body: JSON.stringify({ text, from, to }),
+      }, 30000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Translation failed',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Translate error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Translation failed',
+      };
+    }
+  },
+
+  translateBatch: async (texts: string[], from: string, to: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/translate/batch`, {
+        method: 'POST',
+        body: JSON.stringify({ texts, from, to }),
+      }, 60000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Batch translation failed',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Batch translate error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Batch translation failed',
+      };
+    }
+  },
+
+  // Live Transcript & Insights
+  addLiveTranscript: async (roomName: string, speaker: string, text: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/live-insights/transcript`, {
+        method: 'POST',
+        body: JSON.stringify({ roomName, speaker, text }),
+      }, 10000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to add transcript' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Add transcript error:', error.message);
+      return { data: null, error: error.message || 'Failed to add transcript' };
+    }
+  },
+
+  getLiveTranscript: async (roomName: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/live-insights/transcript/${encodeURIComponent(roomName)}`, {
+        method: 'GET',
+      }, 10000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to get transcript' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Get transcript error:', error.message);
+      return { data: null, error: error.message || 'Failed to get transcript' };
+    }
+  },
+
+  analyzeLiveConversation: async (roomName: string, patientId?: string, locale?: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/live-insights/analyze`, {
+        method: 'POST',
+        body: JSON.stringify({ roomName, patientId, locale }),
+      }, 30000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to analyze conversation' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Analyze conversation error:', error.message);
+      return { data: null, error: error.message || 'Failed to analyze conversation' };
+    }
+  },
+
+  clearLiveTranscript: async (roomName: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/live-insights/transcript/${encodeURIComponent(roomName)}`, {
+        method: 'DELETE',
+      }, 10000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to clear transcript' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Clear transcript error:', error.message);
+      return { data: null, error: error.message || 'Failed to clear transcript' };
+    }
+  },
+
+  // Report Generation
+  generateReport: async (patientId: string, doctorName: string, prescriptions?: string, instructions?: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/ai-assist/generate-report`, {
+        method: 'POST',
+        body: JSON.stringify({ patientId, doctorName, prescriptions, instructions }),
+      }, 60000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.message || 'Report generation failed',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Generate report error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Report generation failed',
       };
     }
   },

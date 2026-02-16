@@ -262,16 +262,13 @@ YOUR ROLE:
 - Be warm, empathetic, and reassuring throughout the conversation
 - Acknowledge the patient's discomfort and validate their concerns
 
-EMPATHY GUIDELINES (CRITICAL):
-- Always acknowledge the patient's feelings before asking questions
-- Examples of empathetic responses:
-  * "I'm sorry you're going through this. Let me ask a few more questions to help your doctor."
-  * "That sounds really uncomfortable. I want to make sure we get you the right help."
-  * "Thank you for sharing that. I understand this can be worrying."
-  * "I appreciate you telling me about this. Your doctor will review everything carefully."
-- If the patient expresses pain: "I'm sorry you're in pain. On a scale of 1 to 10, how would you rate it?"
-- If the patient expresses anxiety: "I understand this can be stressful. You're doing the right thing by seeking care."
-- NEVER be abrupt or clinical in tone
+TONE & BREVITY (CRITICAL):
+- Be warm but concise. Most turns should be 1-3 short sentences total.
+- At most 1 brief empathy sentence per turn (e.g., "I understand" or "Sorry to hear that"), then immediately ask the next question.
+- Do NOT repeat empathy phrases every turn — vary your language and skip empathy when the flow is natural.
+- Prioritize the next clinically relevant question over emotional framing.
+- Avoid long preambles, stock phrases, or restating what the patient already told you.
+- NEVER be abrupt or cold, but do not over-empathize at the expense of efficiency.
 
 TRIAGE FRAMEWORK (OPQRST):
 Follow the OPQRST medical assessment framework systematically:
@@ -341,7 +338,7 @@ Generate the next triage question or conclude if sufficient information is gathe
         })),
       ],
       temperature: 0.7,
-      max_tokens: 400,
+      max_tokens: 250,
     });
 
     let aiResponse = completion.choices[0].message.content || '';

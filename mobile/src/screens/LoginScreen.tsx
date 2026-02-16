@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../theme';
 import { useResponsive } from '../hooks/useResponsive';
 import api from '../utils/api';
+import { changeLanguage, getCurrentLanguage } from '../i18n';
+import LanguageSelector from '../components/LanguageSelector';
 
 export default function LoginScreen({ navigation, onLogin }: any) {
   const { t } = useTranslation();
@@ -29,7 +31,7 @@ export default function LoginScreen({ navigation, onLogin }: any) {
     setLoading(true);
 
     try {
-      const response = await api.login(email, password, userType);
+      const response = await api.login(email, password, userType, getCurrentLanguage());
 
       if (response.error) {
         setError(response.error);
@@ -37,9 +39,12 @@ export default function LoginScreen({ navigation, onLogin }: any) {
       }
 
       const { token, user } = response.data;
+      const preferredLanguage = (user.language || getCurrentLanguage()) as 'en' | 'fr' | 'ar';
+      await changeLanguage(preferredLanguage);
       await AsyncStorage.setItem('userName', user.fullName || user.name || 'Patient');
       await AsyncStorage.setItem('userEmail', user.email);
       await AsyncStorage.setItem('userId', user.id);
+      await AsyncStorage.setItem('userLanguage', preferredLanguage);
       await onLogin(token, user.type);
     } catch (err: any) {
       setError(t('auth.loginFailed'));
@@ -59,6 +64,7 @@ export default function LoginScreen({ navigation, onLogin }: any) {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
+            <LanguageSelector style={styles.languageSelector} />
             <Text style={styles.title}>{t('auth.welcomeBack')}</Text>
             <Text style={styles.subtitle}>{t('auth.signIn')}</Text>
           </View>
@@ -169,6 +175,10 @@ const styles = StyleSheet.create({
   header: {
     marginTop: spacing.xl,
     marginBottom: spacing.xxl,
+  },
+  languageSelector: {
+    alignItems: 'flex-end',
+    marginBottom: spacing.md,
   },
   title: {
     fontSize: 32,

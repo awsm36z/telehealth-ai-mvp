@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { Text, Button, Card, Divider, ActivityIndicator, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { theme, spacing } from '../../theme';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
 interface PatientDetailsScreenProps {
@@ -171,7 +172,10 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
         {/* Patient Info Card */}
         <Card style={styles.card}>
           <Card.Content>
-            <Text style={styles.sectionTitle}>Patient Information</Text>
+            <View style={styles.sectionHeader}>
+              <MaterialCommunityIcons name="account" size={20} color={theme.colors.primary} />
+              <Text style={styles.sectionTitle}>Patient Information</Text>
+            </View>
             <Divider style={styles.divider} />
 
             {patient && (
@@ -206,6 +210,37 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
                 </View>
               </>
             )}
+
+            <View style={styles.quickActions}>
+              <Button
+                mode="contained"
+                icon="pill"
+                onPress={() =>
+                  navigation.navigate('DoctorMedicationAssist', {
+                    patientId,
+                    patientName: patient?.name,
+                    locale: patient?.language === 'ar' ? 'MA' : undefined,
+                  })
+                }
+                style={styles.quickButton}
+              >
+                Medication AI
+              </Button>
+              <Button
+                mode="outlined"
+                icon="message-outline"
+                onPress={() =>
+                  navigation.navigate('AsyncMessages', {
+                    patientId,
+                    senderType: 'doctor',
+                    title: 'Patient Follow-up Messages',
+                  })
+                }
+                style={styles.quickButton}
+              >
+                Messages
+              </Button>
+            </View>
           </Card.Content>
         </Card>
 
@@ -213,44 +248,65 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
         {biometrics && (
           <Card style={styles.card}>
             <Card.Content>
-              <Text style={styles.sectionTitle}>Latest Biometrics</Text>
+              <View style={styles.sectionHeader}>
+                <MaterialCommunityIcons name="heart-pulse" size={20} color={theme.colors.primary} />
+                <Text style={styles.sectionTitle}>Latest Biometrics</Text>
+              </View>
               <Divider style={styles.divider} />
 
               {biometrics.length > 0 ? (
-                biometrics.slice(-1).map((bio: any, index: number) => (
-                  <View key={index}>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Heart Rate:</Text>
-                      <Text style={styles.value}>{bio.heartRate || 'N/A'} bpm</Text>
+                <View style={styles.biometricsGrid}>
+                  {latestBiometric?.heartRate != null && (
+                    <View style={styles.bioMetricTile}>
+                      <MaterialCommunityIcons name="heart" size={22} color="#E53935" />
+                      <Text style={styles.bioMetricValue}>{latestBiometric.heartRate}</Text>
+                      <Text style={styles.bioMetricUnit}>BPM</Text>
+                      <Text style={styles.bioMetricLabel}>Heart Rate</Text>
                     </View>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Blood Pressure:</Text>
-                      <Text style={styles.value}>
-                        {bio.bloodPressureSystolic || 'N/A'}/{bio.bloodPressureDiastolic || 'N/A'} mmHg
+                  )}
+                  {(latestBiometric?.bloodPressureSystolic != null || latestBiometric?.bloodPressureDiastolic != null) && (
+                    <View style={styles.bioMetricTile}>
+                      <MaterialCommunityIcons name="blood-bag" size={22} color="#D32F2F" />
+                      <Text style={styles.bioMetricValue}>
+                        {latestBiometric.bloodPressureSystolic || '—'}/{latestBiometric.bloodPressureDiastolic || '—'}
                       </Text>
+                      <Text style={styles.bioMetricUnit}>mmHg</Text>
+                      <Text style={styles.bioMetricLabel}>Blood Pressure</Text>
                     </View>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Temperature:</Text>
-                      <Text style={styles.value}>{bio.temperature || 'N/A'}°{bio.temperatureUnit || 'F'}</Text>
+                  )}
+                  {latestBiometric?.temperature != null && (
+                    <View style={styles.bioMetricTile}>
+                      <MaterialCommunityIcons name="thermometer" size={22} color="#FF9800" />
+                      <Text style={styles.bioMetricValue}>{latestBiometric.temperature}°{latestBiometric.temperatureUnit || 'F'}</Text>
+                      <Text style={styles.bioMetricUnit}> </Text>
+                      <Text style={styles.bioMetricLabel}>Temperature</Text>
                     </View>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Oxygen Saturation:</Text>
-                      <Text style={styles.value}>{bio.bloodOxygen || 'N/A'}%</Text>
+                  )}
+                  {latestBiometric?.bloodOxygen != null && (
+                    <View style={styles.bioMetricTile}>
+                      <MaterialCommunityIcons name="water-percent" size={22} color="#1976D2" />
+                      <Text style={styles.bioMetricValue}>{latestBiometric.bloodOxygen}%</Text>
+                      <Text style={styles.bioMetricUnit}>SpO2</Text>
+                      <Text style={styles.bioMetricLabel}>Oxygen</Text>
                     </View>
-                    {bio.respiratoryRate && (
-                      <View style={styles.infoRow}>
-                        <Text style={styles.label}>Respiratory Rate:</Text>
-                        <Text style={styles.value}>{bio.respiratoryRate} breaths/min</Text>
-                      </View>
-                    )}
-                    {bio.painLevel && (
-                      <View style={styles.infoRow}>
-                        <Text style={styles.label}>Pain Level:</Text>
-                        <Text style={styles.value}>{bio.painLevel}/10</Text>
-                      </View>
-                    )}
-                  </View>
-                ))
+                  )}
+                  {latestBiometric?.respiratoryRate != null && (
+                    <View style={styles.bioMetricTile}>
+                      <MaterialCommunityIcons name="lungs" size={22} color="#00897B" />
+                      <Text style={styles.bioMetricValue}>{latestBiometric.respiratoryRate}</Text>
+                      <Text style={styles.bioMetricUnit}>br/min</Text>
+                      <Text style={styles.bioMetricLabel}>Resp. Rate</Text>
+                    </View>
+                  )}
+                  {latestBiometric?.painLevel != null && (
+                    <View style={styles.bioMetricTile}>
+                      <MaterialCommunityIcons name="alert-circle" size={22} color={Number(latestBiometric.painLevel) >= 7 ? '#D32F2F' : '#FFA000'} />
+                      <Text style={styles.bioMetricValue}>{latestBiometric.painLevel}/10</Text>
+                      <Text style={styles.bioMetricUnit}> </Text>
+                      <Text style={styles.bioMetricLabel}>Pain Level</Text>
+                    </View>
+                  )}
+                </View>
               ) : (
                 <Text style={styles.noDataText}>No biometric data available</Text>
               )}
@@ -262,7 +318,10 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
         {triageData && (
           <Card style={styles.card}>
             <Card.Content>
-              <Text style={styles.sectionTitle}>Triage Assessment</Text>
+              <View style={styles.sectionHeader}>
+                <MaterialCommunityIcons name="clipboard-text" size={20} color={theme.colors.primary} />
+                <Text style={styles.sectionTitle}>Triage Assessment</Text>
+              </View>
               <Divider style={styles.divider} />
 
               {triageData.completedAt && (
@@ -275,14 +334,17 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
               )}
               {triageData.messages && triageData.messages.length > 0 ? (
                 <View style={styles.triageMessages}>
-                  {triageData.messages.slice(-4).map((msg: any, idx: number) => (
-                    <View key={idx} style={styles.triageMessage}>
-                      <Text style={styles.triageRole}>
-                        {msg.role === 'user' ? 'Patient' : 'AI'}:
-                      </Text>
-                      <Text style={styles.triageContent}>{msg.content}</Text>
-                    </View>
-                  ))}
+                  {triageData.messages.slice(-4).map((msg: any, idx: number) => {
+                    const isPatient = msg.role === 'user';
+                    return (
+                      <View key={idx} style={[styles.triageBubble, isPatient ? styles.triageBubblePatient : styles.triageBubbleAI]}>
+                        <Text style={[styles.triageRole, isPatient ? styles.triageRolePatient : styles.triageRoleAI]}>
+                          {isPatient ? 'Patient' : 'AI Nurse'}
+                        </Text>
+                        <Text style={styles.triageContent}>{msg.content}</Text>
+                      </View>
+                    );
+                  })}
                   {triageData.messages.length > 4 && (
                     <TouchableOpacity onPress={openFullAssessment} activeOpacity={0.7}>
                       <Text style={styles.triageLinkText}>
@@ -302,41 +364,59 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
         {insights && (
           <Card style={styles.card}>
             <Card.Content>
-              <Text style={styles.sectionTitle}>AI Insights</Text>
+              <View style={styles.sectionHeader}>
+                <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
+                <Text style={styles.sectionTitle}>AI Insights</Text>
+              </View>
               <Divider style={styles.divider} />
 
               {typeof insights === 'object' && Object.keys(insights).length > 0 ? (
                 <>
                   {insights.summary && (
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Summary:</Text>
-                      <Text style={styles.value}>{insights.summary}</Text>
+                    <View style={styles.insightSection}>
+                      <Text style={styles.insightSectionLabel}>Summary</Text>
+                      <Text style={styles.insightText}>{insights.summary}</Text>
                     </View>
                   )}
                   {insights.keyFindings && insights.keyFindings.length > 0 && (
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Key Findings:</Text>
-                      <Text style={styles.value}>
-                        {insights.keyFindings.join(', ')}
-                      </Text>
+                    <View style={styles.insightSection}>
+                      <Text style={styles.insightSectionLabel}>Key Findings</Text>
+                      {insights.keyFindings.map((finding: string, idx: number) => (
+                        <View key={idx} style={styles.bulletRow}>
+                          <Text style={styles.bulletDot}>•</Text>
+                          <Text style={styles.bulletText}>{finding}</Text>
+                        </View>
+                      ))}
                     </View>
                   )}
                   {insights.possibleConditions && insights.possibleConditions.length > 0 && (
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Possible Conditions:</Text>
-                      <Text style={styles.value}>
-                        {insights.possibleConditions.map((c: any) =>
-                          `${c.name} (${c.confidence})`
-                        ).join(', ')}
-                      </Text>
+                    <View style={styles.insightSection}>
+                      <Text style={styles.insightSectionLabel}>Possible Conditions</Text>
+                      {insights.possibleConditions.map((c: any, idx: number) => (
+                        <View key={idx} style={styles.conditionRow}>
+                          <Text style={styles.conditionName}>{c.name}</Text>
+                          <View style={[
+                            styles.confidenceBadge,
+                            { backgroundColor: c.confidence === 'High' ? '#FFCDD2' : c.confidence === 'Medium' ? '#FFF9C4' : '#C8E6C9' },
+                          ]}>
+                            <Text style={[
+                              styles.confidenceText,
+                              { color: c.confidence === 'High' ? '#C62828' : c.confidence === 'Medium' ? '#F57F17' : '#2E7D32' },
+                            ]}>{c.confidence}</Text>
+                          </View>
+                        </View>
+                      ))}
                     </View>
                   )}
                   {insights.nextSteps && insights.nextSteps.length > 0 && (
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Next Steps:</Text>
-                      <Text style={styles.value}>
-                        {insights.nextSteps.join(', ')}
-                      </Text>
+                    <View style={styles.insightSection}>
+                      <Text style={styles.insightSectionLabel}>Recommended Next Steps</Text>
+                      {insights.nextSteps.map((step: string, idx: number) => (
+                        <View key={idx} style={styles.bulletRow}>
+                          <Text style={styles.bulletDot}>{idx + 1}.</Text>
+                          <Text style={styles.bulletText}>{step}</Text>
+                        </View>
+                      ))}
                     </View>
                   )}
                 </>
@@ -372,6 +452,7 @@ export default function PatientDetailsScreen({ route, navigation }: PatientDetai
                   roomName: existingCall.roomName,
                   patientId,
                   patientName: patient?.name || 'Unknown Patient',
+                  patientLanguage: patient?.language || 'en',
                   insights,
                   biometrics,
                   triageTranscript: triageData,
@@ -436,6 +517,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     marginBottom: spacing.md,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -482,18 +568,126 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
     fontStyle: 'italic',
   },
+  quickActions: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  quickButton: {
+    flex: 1,
+  },
+  biometricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  bioMetricTile: {
+    width: '30%',
+    backgroundColor: `${theme.colors.primary}08`,
+    borderRadius: theme.roundness,
+    padding: spacing.sm,
+    alignItems: 'center',
+    gap: 2,
+  },
+  bioMetricValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+    marginTop: 4,
+  },
+  bioMetricUnit: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+  },
+  bioMetricLabel: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  insightSection: {
+    marginBottom: spacing.md,
+  },
+  insightSectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.primary,
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  insightText: {
+    fontSize: 14,
+    color: theme.colors.onSurface,
+    lineHeight: 20,
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    paddingLeft: spacing.xs,
+    marginBottom: 4,
+    gap: spacing.xs,
+  },
+  bulletDot: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  bulletText: {
+    fontSize: 14,
+    color: theme.colors.onSurface,
+    lineHeight: 20,
+    flex: 1,
+  },
+  conditionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingLeft: spacing.xs,
+  },
+  conditionName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.onSurface,
+    flex: 1,
+  },
+  confidenceBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: theme.roundness,
+  },
+  confidenceText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   triageMessages: {
     gap: spacing.sm,
     marginTop: spacing.xs,
   },
-  triageMessage: {
-    paddingVertical: spacing.xs,
+  triageBubble: {
+    padding: spacing.sm,
+    borderRadius: theme.roundness,
+    maxWidth: '90%',
+  },
+  triageBubblePatient: {
+    backgroundColor: `${theme.colors.primary}12`,
+    alignSelf: 'flex-end',
+  },
+  triageBubbleAI: {
+    backgroundColor: `${theme.colors.onSurface}08`,
+    alignSelf: 'flex-start',
   },
   triageRole: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: theme.colors.primary,
     marginBottom: 2,
+  },
+  triageRolePatient: {
+    color: theme.colors.primary,
+  },
+  triageRoleAI: {
+    color: theme.colors.onSurfaceVariant,
   },
   triageContent: {
     fontSize: 13,

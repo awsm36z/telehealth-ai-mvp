@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '../theme';
+import { useResponsive } from '../hooks/useResponsive';
 
 // Patient Screens
 import PatientHomeScreen from '../screens/patient/PatientHomeScreen';
@@ -14,6 +15,7 @@ import VideoCallScreen from '../screens/patient/VideoCallScreen';
 import HistoryScreen from '../screens/patient/HistoryScreen';
 import ConsultationDetailScreen from '../screens/patient/ConsultationDetailScreen';
 import ProfileScreen from '../screens/patient/ProfileScreen';
+import AsyncMessagesScreen from '../screens/shared/AsyncMessagesScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -37,11 +39,14 @@ function HistoryStackNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HistoryList" component={HistoryScreen} />
       <Stack.Screen name="ConsultationDetail" component={ConsultationDetailScreen} />
+      <Stack.Screen name="AsyncMessages" component={AsyncMessagesScreen} />
     </Stack.Navigator>
   );
 }
 
 export default function PatientNavigator({ onLogout }: { onLogout: () => void }) {
+  const { isTablet } = useResponsive();
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -52,12 +57,12 @@ export default function PatientNavigator({ onLogout }: { onLogout: () => void })
           backgroundColor: theme.colors.surface,
           borderTopWidth: 1,
           borderTopColor: theme.colors.outline,
-          height: 90,
-          paddingBottom: 30,
-          paddingTop: 10,
+          height: isTablet ? 82 : 90,
+          paddingBottom: isTablet ? 14 : 30,
+          paddingTop: isTablet ? 8 : 10,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: isTablet ? 13 : 12,
           fontWeight: '600',
         },
       }}

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "TeleHealth AI",
+    "name": "Vitali",
     "slug": "telehealth-ai",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,20 +16,55 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.telehealth.ai"
+      "bundleIdentifier": "com.telehealth.ai",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera access is required for video consultations.",
+        "NSMicrophoneUsageDescription": "Allow Vitali to use the microphone for voice triage.",
+        "NSSpeechRecognitionUsageDescription": "Allow Vitali to use speech recognition for voice-based health triage.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#4A90E2"
       },
-      "package": "com.telehealth.ai"
+      "package": "com.telehealth.ai",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Vitali to use the microphone for voice triage.",
+          "speechRecognitionPermission": "Allow Vitali to use speech recognition for voice-based health triage."
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "https://telehealth-backend-cn5a.onrender.com/api",
+      "eas": {
+        "projectId": "990a211b-a126-4168-9dd9-5727e32c1f73"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/990a211b-a126-4168-9dd9-5727e32c1f73"
+    }
   }
 }

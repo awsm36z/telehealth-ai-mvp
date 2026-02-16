@@ -29,6 +29,10 @@ import videoRoutes from './routes/video';
 import consultationsRoutes from './routes/consultations';
 import aiAssistRoutes from './routes/ai-assist';
 import analyticsRoutes from './routes/analytics';
+import translateRoutes from './routes/translate';
+import liveInsightsRoutes from './routes/live-insights';
+import medicationAssistRoutes from './routes/medication-assist';
+import messagesRoutes from './routes/messages';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
@@ -71,6 +75,10 @@ app.use('/api/video', videoRoutes);
 app.use('/api/consultations', consultationsRoutes);
 app.use('/api/ai-assist', aiAssistRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/translate', translateRoutes);
+app.use('/api/live-insights', liveInsightsRoutes);
+app.use('/api/medication-assist', medicationAssistRoutes);
+app.use('/api/messages', messagesRoutes);
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {
@@ -109,7 +117,7 @@ async function startServer() {
   await initStorage();
 
   const server = app.listen(PORT, () => {
-    console.log(`🚀 TeleHealth AI Backend running on port ${PORT}`);
+    console.log(`🚀 Vitali Backend running on port ${PORT}`);
     console.log(`📍 Health check: http://localhost:${PORT}/health`);
     console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
     if (allowedOrigins.length > 0) {

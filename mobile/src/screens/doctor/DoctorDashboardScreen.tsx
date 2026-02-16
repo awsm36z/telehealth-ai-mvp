@@ -12,7 +12,7 @@ import api from '../../utils/api';
 
 export default function DoctorDashboardScreen({ navigation }: any) {
   const { t } = useTranslation();
-  const { contentContainerStyle } = useResponsive();
+  const { contentContainerStyle, isTablet } = useResponsive();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCalls, setActiveCalls] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
@@ -40,6 +40,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
           id: patient.id || patient._id,
           name: patient.name || 'Unknown',
           age: patient.age || 0,
+          language: patient.language || 'en',
           chiefComplaint: patient.chiefComplaint || 'General consultation',
           triageCompleted: new Date(patient.triageCompletedAt).toLocaleString() || 'Pending',
           status: patient.status || 'waiting',
@@ -95,6 +96,7 @@ export default function DoctorDashboardScreen({ navigation }: any) {
         roomName: call.roomName,
         patientId: patient.id,
         patientName: patient.name,
+        patientLanguage: patient.language || 'en',
         insights,
         biometrics,
         triageTranscript,
@@ -195,7 +197,15 @@ export default function DoctorDashboardScreen({ navigation }: any) {
                     (c.status === 'waiting' || c.status === 'active')
                 )}
                 onStartCall={() => startConsultation(patient)}
+                onOpenMedication={() =>
+                  navigation.navigate('DoctorMedicationAssist', {
+                    patientId: patient.id,
+                    patientName: patient.name,
+                    locale: patient.language === 'ar' ? 'MA' : undefined,
+                  })
+                }
                 t={t}
+                isTablet={isTablet}
               />
             ))
           )}
@@ -219,7 +229,7 @@ function StatCard({ icon, value, label, color }: any) {
   );
 }
 
-function PatientCard({ patient, navigation, hasActiveCall, onStartCall, t }: any) {
+function PatientCard({ patient, navigation, hasActiveCall, onStartCall, onOpenMedication, t, isTablet }: any) {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'high':
@@ -288,17 +298,27 @@ function PatientCard({ patient, navigation, hasActiveCall, onStartCall, t }: any
           </View>
 
           {/* Start Call Button */}
-          {hasActiveCall && (
+          <View style={[styles.actionRow, isTablet && styles.actionRowTablet]}>
+            {hasActiveCall && (
+              <Button
+                mode="contained"
+                icon="video"
+                onPress={onStartCall}
+                style={[styles.startCallButton, isTablet && styles.actionButtonTablet]}
+                labelStyle={styles.startCallLabel}
+              >
+                {t('doctor.startVideoConsultation')}
+              </Button>
+            )}
             <Button
-              mode="contained"
-              icon="video"
-              onPress={onStartCall}
-              style={styles.startCallButton}
-              labelStyle={styles.startCallLabel}
+              mode={hasActiveCall ? 'outlined' : 'contained'}
+              icon="pill"
+              onPress={onOpenMedication}
+              style={[styles.medicationButton, isTablet && styles.actionButtonTablet]}
             >
-              {t('doctor.startVideoConsultation')}
+              Medication AI
             </Button>
-          )}
+          </View>
         </Card.Content>
       </Card>
     </TouchableOpacity>
@@ -470,14 +490,29 @@ const styles = StyleSheet.create({
     color: theme.colors.secondary,
   },
   startCallButton: {
-    marginTop: spacing.md,
     backgroundColor: '#4CAF50',
     borderRadius: theme.roundness,
+    flex: 1,
   },
   startCallLabel: {
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  actionRow: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  actionRowTablet: {
+    gap: spacing.md,
+  },
+  actionButtonTablet: {
+    minHeight: 48,
+  },
+  medicationButton: {
+    flex: 1,
+    borderRadius: theme.roundness,
   },
   emptyCard: {
     backgroundColor: theme.colors.surface,

@@ -1,6 +1,6 @@
-# 🏥 TeleHealth AI - AI-Powered Telehealth Platform
+# 🏥 Vitali Intelligent Health - AI-Powered Telehealth Platform
 
-A modern telehealth application with AI-powered triage, health insights, and video consultation capabilities. Built with React Native (Expo) for mobile and Node.js/Express for the backend.
+A modern telehealth application under the **Vitali** brand with AI-powered triage, health insights, and video consultation capabilities. Built with React Native (Expo) for mobile and Node.js/Express for the backend.
 
 ## ✨ Features
 

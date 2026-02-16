@@ -5,6 +5,7 @@ import {
   patientBiometrics,
   patientInsights,
   patientTriageData,
+  patientProfiles,
 } from '../storage';
 
 const router = express.Router();
@@ -67,7 +68,7 @@ router.get('/:patientId/notes', async (req: Request, res: Response) => {
 router.post('/:patientId/complete', async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
-    const { roomName, doctorName } = req.body;
+    const { roomName, doctorName, doctorLanguage, patientLanguage } = req.body;
 
     const patientNotes = consultationNotes[patientId];
     // Only attach notes for the same room to avoid leaking stale notes from prior consultations.
@@ -84,6 +85,8 @@ router.post('/:patientId/complete', async (req: Request, res: Response) => {
       patientId,
       roomName,
       doctorName: doctorName || 'Doctor',
+      doctorLanguage: doctorLanguage || 'en',
+      patientLanguage: patientLanguage || patientProfiles[patientId]?.language || 'en',
       notes,
       doctorNotes: notes,
       summary: insights?.summary || triageData?.chiefComplaint || 'General consultation',
