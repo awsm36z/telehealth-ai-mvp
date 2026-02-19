@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -17,6 +18,13 @@ export default function DoctorDashboardScreen({ navigation }: any) {
   const [activeCalls, setActiveCalls] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [doctorName, setDoctorName] = useState('Doctor');
+
+  useEffect(() => {
+    AsyncStorage.getItem('userName').then((name) => {
+      if (name?.trim()) setDoctorName(name.trim());
+    });
+  }, []);
 
   // Fetch patients and active calls when screen is focused
   useFocusEffect(
@@ -141,12 +149,12 @@ export default function DoctorDashboardScreen({ navigation }: any) {
         >
           <View style={styles.headerContent}>
             <View>
-              <Text style={styles.greeting}>Dr. Martinez</Text>
+              <Text style={styles.greeting}>Dr. {doctorName.split(' ').pop() || doctorName}</Text>
               <Text style={styles.subtitle}>{t('doctor.patientsWaiting', { count: patientsForDisplay.length })}</Text>
             </View>
             <Avatar.Text
               size={56}
-              label="DM"
+              label={doctorName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
               style={styles.avatar}
               labelStyle={styles.avatarLabel}
             />

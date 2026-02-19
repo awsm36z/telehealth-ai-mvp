@@ -99,7 +99,11 @@
     "voiceUnavailable": "Entrée vocale indisponible",
     "voiceUnavailableMessage": "La reconnaissance vocale nécessite un build de développement. Passage en mode texte.",
     "micPermissionRequired": "Permission du microphone requise",
-    "micPermissionMessage": "Veuillez autoriser l'accès au microphone pour utiliser l'entrée vocale."
+    "micPermissionMessage": "Veuillez autoriser l'accès au microphone pour utiliser l'entrée vocale.",
+    "skipButton": "Passer",
+    "skipTitle": "Passer le triage ?",
+    "skipMessage": "Vous pouvez passer le triage IA et aller directement en salle d'attente. Le médecin aura moins de contexte sur vos symptômes.",
+    "skipConfirm": "Passer au médecin"
   },
   "waitingRoom": {
     "title": "Salle d'attente",

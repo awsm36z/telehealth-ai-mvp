@@ -2,7 +2,8 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocales } from 'expo-localization';
-import { I18nManager, Alert } from 'react-native';
+import { I18nManager } from 'react-native';
+import * as Updates from 'expo-updates';
 
 import en from './translations/en.json';
 import fr from './translations/fr.json';
@@ -80,14 +81,12 @@ export const changeLanguage = async (languageCode: LanguageCode) => {
 
   const needsRestart = applyRTL(languageCode);
   if (needsRestart) {
-    // RTL/LTR switch requires an app restart to take full effect
-    Alert.alert(
-      languageCode === 'ar' ? 'تغيير اللغة' : 'Language Changed',
-      languageCode === 'ar'
-        ? 'يجب إعادة تشغيل التطبيق لتفعيل اتجاه الكتابة من اليمين لليسار. أغلق التطبيق وأعد فتحه.'
-        : 'Please close and reopen the app to apply the layout direction change.',
-      [{ text: languageCode === 'ar' ? 'حسنا' : 'OK' }]
-    );
+    // RTL/LTR switch requires an app reload to take effect
+    try {
+      await Updates.reloadAsync();
+    } catch {
+      // In development, Updates.reloadAsync may not work — fall back silently
+    }
   }
 };
 

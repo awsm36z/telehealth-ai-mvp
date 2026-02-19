@@ -190,7 +190,7 @@ const api = {
   },
 
   // Triage
-  triageChat: async (payload: { messages: any[]; patientId?: string; biometrics?: any }) => {
+  triageChat: async (payload: { messages: any[]; patientId?: string; biometrics?: any; language?: string }) => {
     try {
       console.log('📤 Sending triage request to:', `${API_URL}/triage/chat`);
       const response = await fetchWithTimeout(`${API_URL}/triage/chat`, {
@@ -914,6 +914,29 @@ const api = {
         data: null,
         error: error.message || 'Report generation failed',
       };
+    }
+  },
+
+  // Text-to-Speech
+  getTtsAudioUrl: (text: string, voice: string = 'nova') => {
+    return `${API_URL}/tts`;
+  },
+
+  fetchTtsAudio: async (text: string, voice: string = 'nova'): Promise<{ data: ArrayBuffer | null; error: string | null }> => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/tts`, {
+        method: 'POST',
+        body: JSON.stringify({ text, voice }),
+      }, 15000, true);
+
+      if (!response.ok) {
+        return { data: null, error: 'TTS request failed' };
+      }
+
+      const buffer = await response.arrayBuffer();
+      return { data: buffer, error: null };
+    } catch (error: any) {
+      return { data: null, error: error.message || 'TTS failed' };
     }
   },
 };

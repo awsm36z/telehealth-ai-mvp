@@ -74,24 +74,30 @@ function getStatusColor(status: 'normal' | 'warning' | 'critical'): string {
 
 export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const { roomName, patientId, patientName, patientLanguage, insights, biometrics, triageTranscript } = route.params;
-  const { isTablet } = useResponsive();
+  const { isTablet, height } = useResponsive();
+  const assistPaneHeight = isTablet
+    ? Math.min(560, Math.max(360, Math.round(height * 0.36)))
+    : Math.min(460, Math.max(280, Math.round(height * 0.34)));
 
   const [isConnecting, setIsConnecting] = useState(true);
   const [dailyJoinUrl, setDailyJoinUrl] = useState<string | null>(null);
   const [showNotes, setShowNotes] = useState(false);
   const [showBiometrics, setShowBiometrics] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-  const [showNotesPanel, setShowNotesPanel] = useState(false);
-  const [showAskAI, setShowAskAI] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [showLiveAssist, setShowLiveAssist] = useState(true);
+  // Prescription list built from AI medication suggestions
+  const [prescriptions, setPrescriptions] = useState<{ name: string; dosage?: string; rationale?: string }[]>([]);
+  // Diagnostics added from AI insights
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [consultationHistoryData, setConsultationHistoryData] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [reportPrescriptions, setReportPrescriptions] = useState('');
   const [reportInstructions, setReportInstructions] = useState('');
   const [generatedReport, setGeneratedReport] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [showFloatingControls, setShowFloatingControls] = useState(true);
   const [doctorNotes, setDoctorNotes] = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
   const [aiQuestion, setAiQuestion] = useState('');
@@ -109,7 +115,6 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const languageMismatch = patientLanguage && doctorLanguage && patientLanguage !== doctorLanguage;
 
   // Live transcript state
-  const [showLiveTranscript, setShowLiveTranscript] = useState(false);
   const [liveTranscriptEntries, setLiveTranscriptEntries] = useState<{ speaker: string; text: string; timestamp: string }[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [liveInsight, setLiveInsight] = useState('');
@@ -408,6 +413,56 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         // Ignore
       }
     }
+  };
+
+  // Issue #64: Add medication to prescription list
+  const addToPrescription = (med: { name: string; dosage?: string; rationale?: string }) => {
+    if (prescriptions.some((p) => p.name === med.name)) {
+      Alert.alert('Already Added', `${med.name} is already in the prescription list.`);
+      return;
+    }
+    setPrescriptions((prev) => [...prev, med]);
+    // Also add to the report prescriptions text
+    setReportPrescriptions((prev) => {
+      const line = `${med.name}${med.dosage ? ` - ${med.dosage}` : ''}`;
+      return prev ? `${prev}\n${line}` : line;
+    });
+    Alert.alert('Added to Prescription', `${med.name} added to prescription list.`);
+  };
+
+  // Issue #64: Look up drug facts
+  const lookupDrugFacts = async (medName: string) => {
+    setMedQuestion(`What are the drug facts, contraindications, and interactions for ${medName}?`);
+    // Auto-ask
+    setMedAnswerLoading(true);
+    setMedAnswer('');
+    try {
+      const locale = patientLanguage === 'ar' ? 'MA' : undefined;
+      const response = await api.askMedicationAI({
+        patientId,
+        locale,
+        question: `What are the drug facts, contraindications, side effects, and interactions for ${medName}?`,
+      });
+      setMedAnswer(response.data?.answer || response.error || 'Unable to get drug facts.');
+    } catch {
+      setMedAnswer('Unable to get drug facts.');
+    }
+    setMedAnswerLoading(false);
+  };
+
+  // Issue #65: Add condition to doctor notes as diagnostic
+  const addDiagnostic = (conditionName: string) => {
+    if (diagnostics.includes(conditionName)) {
+      Alert.alert('Already Added', `${conditionName} is already in diagnostics.`);
+      return;
+    }
+    setDiagnostics((prev) => [...prev, conditionName]);
+    // Add to doctor notes
+    setDoctorNotes((prev) => {
+      const line = `Dx: ${conditionName}`;
+      return prev ? `${prev}\n${line}` : line;
+    });
+    Alert.alert('Added to Notes', `${conditionName} added as a diagnostic to your notes.`);
   };
 
   const handleManualTranscriptEntry = () => {
@@ -745,172 +800,191 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
           )}
         </View>
 
+        {/* Video tap zone for toggling floating call controls.
+            Excludes right-side panel toggle area (stethoscope etc.). */}
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.videoTapZone}
+          onPress={() => setShowFloatingControls((prev) => !prev)}
+        />
+
         {/* Panel Toggle Buttons */}
         <View style={styles.panelToggles}>
-          <IconButton
-            icon="chat-processing"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showTranscript && styles.insightsButtonActive]}
-            onPress={() => { setShowTranscript(!showTranscript); if (!showTranscript) { setShowNotes(false); setShowBiometrics(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="heart-pulse"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showBiometrics && styles.insightsButtonActive]}
-            onPress={() => { setShowBiometrics(!showBiometrics); if (!showBiometrics) { setShowNotes(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="brain"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showNotes && styles.insightsButtonActive]}
-            onPress={() => { setShowNotes(!showNotes); if (!showNotes) { setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="history"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showHistory && styles.insightsButtonActive]}
-            onPress={() => { setShowHistory(!showHistory); if (!showHistory) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="stethoscope"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showLiveAssist && styles.insightsButtonActive]}
-            onPress={() => { setShowLiveAssist(!showLiveAssist); if (!showLiveAssist) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); } }}
-          />
-          <IconButton
-            icon="microphone-message"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showLiveTranscript && styles.insightsButtonActive]}
-            onPress={() => { setShowLiveTranscript(!showLiveTranscript); if (!showLiveTranscript) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="note-edit"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showNotesPanel && styles.insightsButtonActive]}
-            onPress={() => { setShowNotesPanel(!showNotesPanel); if (!showNotesPanel) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowAskAI(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="robot"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showAskAI && styles.insightsButtonActive]}
-            onPress={() => { setShowAskAI(!showAskAI); if (!showAskAI) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowHistory(false); setShowReport(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
-          <IconButton
-            icon="file-document-edit"
-            size={24}
-            iconColor="#FFFFFF"
-            style={[styles.insightsButton, showReport && styles.insightsButtonActive]}
-            onPress={() => { setShowReport(!showReport); if (!showReport) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowNotesPanel(false); setShowAskAI(false); setShowHistory(false); setShowLiveTranscript(false); setShowLiveAssist(false); } }}
-          />
+          <IconButton icon="stethoscope" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showLiveAssist && styles.insightsButtonActive]} onPress={() => { const closing = showLiveAssist; setShowLiveAssist(!showLiveAssist); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowHistory(false); setShowReport(false); } }} />
+          <IconButton icon="chat-processing" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showTranscript && styles.insightsButtonActive]} onPress={() => { const closing = showTranscript; setShowTranscript(!showTranscript); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }} />
+          <IconButton icon="heart-pulse" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showBiometrics && styles.insightsButtonActive]} onPress={() => { const closing = showBiometrics; setShowBiometrics(!showBiometrics); if (!closing) { setShowNotes(false); setShowTranscript(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }} />
+          <IconButton icon="brain" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showNotes && styles.insightsButtonActive]} onPress={() => { const closing = showNotes; setShowNotes(!showNotes); if (!closing) { setShowBiometrics(false); setShowTranscript(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }} />
+          <IconButton icon="history" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showHistory && styles.insightsButtonActive]} onPress={() => { const closing = showHistory; setShowHistory(!showHistory); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowReport(false); setShowLiveAssist(false); } }} />
+          <IconButton icon="file-document-edit" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showReport && styles.insightsButtonActive]} onPress={() => { const closing = showReport; setShowReport(!showReport); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowHistory(false); setShowLiveAssist(false); } }} />
         </View>
       </View>
 
-      {/* Live Clinical Assist Pane (default open) */}
+      {/* Clinical Assist + Notes Pane (default open) */}
       {showLiveAssist && (
-        <View style={[styles.notesPanel, isTablet && { maxHeight: 520 }]}>
-          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.insightsPanelHeader}>
-              <MaterialCommunityIcons name="stethoscope" size={20} color={theme.colors.primary} />
-              <Text style={styles.insightsPanelTitle}>Live Clinical Assist</Text>
-              {liveAssistLoading && <ActivityIndicator size={14} color={theme.colors.primary} />}
-              <IconButton icon="refresh" size={18} onPress={refreshLiveAssist} style={styles.closeInsights} />
-              <IconButton icon="close" size={18} onPress={() => setShowLiveAssist(false)} style={styles.closeInsights} />
+        <View style={[styles.assistPane, { height: assistPaneHeight }]}>
+          {/* Header */}
+          <View style={styles.assistPaneHeader}>
+            <View style={styles.assistPaneHeaderLeft}>
+              <MaterialCommunityIcons name="stethoscope" size={18} color={theme.colors.primary} />
+              <Text style={styles.assistPaneTitle}>Clinical Assist</Text>
+              {liveAssistLoading && <ActivityIndicator size={12} color={theme.colors.primary} />}
             </View>
-
-            <View style={styles.aiWarningBanner}>
-              <MaterialCommunityIcons name="alert-circle-outline" size={14} color={theme.colors.warning} />
-              <Text style={styles.aiWarningText}>
-                Assistive output only. This is not a prescription. Doctor must verify before prescribing.
-              </Text>
+            <View style={styles.assistPaneHeaderRight}>
+              <TouchableOpacity onPress={refreshLiveAssist} style={styles.assistHeaderBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="refresh" size={16} color={theme.colors.onSurfaceVariant} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowLiveAssist(false)} style={styles.assistHeaderBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="chevron-down" size={20} color={theme.colors.onSurfaceVariant} />
+              </TouchableOpacity>
             </View>
+          </View>
 
-            <View style={styles.insightSection}>
-              <Text style={styles.insightLabel}>Live Summary</Text>
-              <Text style={styles.insightText}>{liveAssistData?.liveSummary || 'Waiting for call insights...'}</Text>
-            </View>
-
-            <View style={styles.insightSection}>
-              <Text style={styles.insightLabel}>Insights</Text>
-              {(liveAssistData?.insights || []).length ? (
-                liveAssistData.insights.map((item: string, index: number) => (
-                  <View key={`live-insight-${index}`} style={styles.findingRow}>
-                    <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.primary} />
-                    <Text style={styles.findingText}>{item}</Text>
+          <ScrollView showsVerticalScrollIndicator={false} style={styles.assistPaneScroll}>
+            {/* AI Insights Section */}
+            <View style={styles.assistSection}>
+              {/* Live transcript indicator + STT controls */}
+              <View style={styles.sttControls}>
+                {sttAvailable && (
+                  <TouchableOpacity
+                    style={[styles.sttButton, isListening && styles.sttButtonActive]}
+                    onPress={isListening ? stopListening : startListening}
+                  >
+                    <MaterialCommunityIcons name={isListening ? 'stop' : 'microphone'} size={14} color={isListening ? '#FFFFFF' : theme.colors.primary} />
+                    <Text style={[styles.sttButtonText, isListening && { color: '#FFFFFF' }]}>{isListening ? 'Stop' : 'Transcribe'}</Text>
+                  </TouchableOpacity>
+                )}
+                {liveTranscriptEntries.length > 0 && (
+                  <View style={styles.liveTranscriptIndicator}>
+                    <MaterialCommunityIcons name="microphone-message" size={12} color={theme.colors.secondary} />
+                    <Text style={styles.liveTranscriptIndicatorText}>
+                      {liveTranscriptEntries.length} entries
+                    </Text>
+                    {isListening && <View style={styles.listeningDot} />}
                   </View>
-                ))
-              ) : (
-                <Text style={styles.insightText}>No insights yet.</Text>
-              )}
-            </View>
-
-            <View style={styles.insightSection}>
-              <Text style={styles.insightLabel}>Suggested Questions</Text>
-              {(liveAssistData?.suggestedQuestions || []).length ? (
-                liveAssistData.suggestedQuestions.map((item: string, index: number) => (
-                  <Text key={`question-${index}`} style={styles.findingText}>• {item}</Text>
-                ))
-              ) : (
-                <Text style={styles.insightText}>No follow-up questions yet.</Text>
-              )}
-            </View>
-
-            <View style={styles.insightSection}>
-              <Text style={styles.insightLabel}>Possible Medication</Text>
-              {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length ? (
-                (liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
-                  <View key={`med-${index}`} style={styles.liveMedicationItem}>
-                    <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
-                    <Text style={styles.conditionDesc}>{item.rationale || 'Validate indication/contraindications.'}</Text>
-                    <View style={styles.historyConditions}>
-                      {item.market ? (
-                        <Chip mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
-                          {item.market}
-                        </Chip>
-                      ) : null}
-                      {item.confidence ? (
-                        <Chip mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
-                          Confidence: {item.confidence}
-                        </Chip>
-                      ) : null}
-                    </View>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.insightText}>No medication suggestions generated.</Text>
-              )}
-            </View>
-
-            <View style={styles.insightSection}>
-              <Text style={styles.insightLabel}>Ask Medication AI</Text>
-              <View style={styles.askAiInputRow}>
-                <TextInput
-                  style={styles.askAiInput}
-                  placeholder="Ask about alternatives, contraindications, interactions..."
-                  placeholderTextColor={theme.colors.onSurfaceVariant}
-                  value={medQuestion}
-                  onChangeText={setMedQuestion}
-                  onSubmitEditing={askMedicationInCall}
-                  returnKeyType="send"
-                />
-                <IconButton
-                  icon="send"
-                  size={22}
-                  iconColor="#FFFFFF"
-                  style={styles.askAiSend}
-                  onPress={askMedicationInCall}
-                  disabled={medAnswerLoading || !medQuestion.trim()}
-                />
+                )}
               </View>
-              {medAnswerLoading ? <Text style={styles.askAiLoading}>Thinking...</Text> : null}
-              {medAnswer ? <Text style={styles.insightText}>{medAnswer}</Text> : null}
+
+              {/* Live Summary */}
+              <View style={styles.assistCard}>
+                <Text style={styles.assistCardLabel}>Live Summary</Text>
+                <Text style={styles.assistCardText}>{liveAssistData?.liveSummary || 'Waiting for call insights...'}</Text>
+              </View>
+
+              {/* Insights */}
+              {(liveAssistData?.insights || []).length > 0 && (
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Insights</Text>
+                  {liveAssistData.insights.map((item: string, index: number) => (
+                    <View key={`live-insight-${index}`} style={styles.findingRow}>
+                      <MaterialCommunityIcons name="check-circle" size={13} color={theme.colors.primary} />
+                      <Text style={styles.findingText}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Suggested Questions */}
+              {(liveAssistData?.suggestedQuestions || []).length > 0 && (
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Suggested Questions</Text>
+                  {liveAssistData.suggestedQuestions.map((item: string, index: number) => (
+                    <Text key={`question-${index}`} style={styles.findingText}>{'\u2022'} {item}</Text>
+                  ))}
+                </View>
+              )}
+
+              {/* Possible Medication */}
+              {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length > 0 && (
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Possible Medication</Text>
+                  {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
+                    <View key={`med-${index}`} style={styles.liveMedicationItem}>
+                      <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
+                      <Text style={styles.conditionDesc}>{item.rationale || 'Validate indication/contraindications.'}</Text>
+                      <View style={styles.medActions}>
+                        <TouchableOpacity style={styles.medActionButton} onPress={() => addToPrescription({ name: item.name, dosage: item.dosage, rationale: item.rationale })}>
+                          <MaterialCommunityIcons name="plus-circle" size={13} color={theme.colors.primary} />
+                          <Text style={styles.medActionText}>Add to Rx</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.medActionButton} onPress={() => lookupDrugFacts(item.name)}>
+                          <MaterialCommunityIcons name="information" size={13} color={theme.colors.secondary} />
+                          <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Drug Facts</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* AI Chat */}
+              <View style={styles.assistCard}>
+                <Text style={styles.assistCardLabel}>Ask AI</Text>
+                <View style={styles.aiChatRow}>
+                  <TextInput
+                    style={styles.aiChatInput}
+                    placeholder="Ask about medications, conditions..."
+                    placeholderTextColor={theme.colors.onSurfaceVariant}
+                    value={medQuestion}
+                    onChangeText={setMedQuestion}
+                    onSubmitEditing={askMedicationInCall}
+                    returnKeyType="send"
+                  />
+                  <TouchableOpacity
+                    onPress={askMedicationInCall}
+                    disabled={medAnswerLoading || !medQuestion.trim()}
+                    style={styles.aiChatSend}
+                  >
+                    <MaterialCommunityIcons name="send" size={18} color={medQuestion.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
+                  </TouchableOpacity>
+                </View>
+                {medAnswerLoading && <Text style={styles.askAiLoading}>Thinking...</Text>}
+                {medAnswer ? <Text style={styles.aiChatAnswer}>{medAnswer}</Text> : null}
+              </View>
+            </View>
+
+            {/* Divider */}
+            <View style={styles.assistDivider} />
+
+            {/* Notes Section */}
+            <View style={styles.assistSection}>
+              <View style={styles.notesSectionHeader}>
+                <MaterialCommunityIcons name="note-edit" size={16} color={theme.colors.primary} />
+                <Text style={styles.assistCardLabel}>Consultation Notes</Text>
+                {notesSaved && (
+                  <View style={styles.savedBadge}>
+                    <MaterialCommunityIcons name="check" size={10} color={theme.colors.success} />
+                    <Text style={styles.savedText}>Saved</Text>
+                  </View>
+                )}
+                <TouchableOpacity onPress={() => saveNotes(doctorNotes)} style={styles.saveNowButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <MaterialCommunityIcons name="content-save" size={14} color={theme.colors.primary} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Diagnostics chips */}
+              {diagnostics.length > 0 && (
+                <View style={styles.diagnosticsList}>
+                  {diagnostics.map((dx, index) => (
+                    <View key={index} style={styles.diagnosticChip}>
+                      <Text style={styles.diagnosticText}>{dx}</Text>
+                      <TouchableOpacity onPress={() => setDiagnostics((prev) => prev.filter((_, i) => i !== index))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <MaterialCommunityIcons name="close-circle" size={12} color={theme.colors.onSurfaceVariant} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <TextInput
+                style={styles.notesTextarea}
+                multiline
+                placeholder="Type your consultation notes here..."
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+                value={doctorNotes}
+                onChangeText={setDoctorNotes}
+                textAlignVertical="top"
+              />
+              <Text style={styles.autoSaveHint}>Auto-saves every 30s</Text>
             </View>
           </ScrollView>
         </View>
@@ -1243,7 +1317,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               <View style={styles.insightSection}>
                 <Text style={styles.insightLabel}>Possible Conditions</Text>
                 {displayInsights.possibleConditions.map((condition: any, index: number) => (
-                  <View key={index} style={styles.conditionRow}>
+                  <TouchableOpacity key={index} style={styles.conditionRow} onPress={() => addDiagnostic(condition.name)} activeOpacity={0.7}>
                     <Chip
                       mode="flat"
                       style={[
@@ -1275,8 +1349,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       <Text style={styles.conditionName}>{condition.name}</Text>
                       <Text style={styles.conditionDesc}>{condition.description}</Text>
                     </View>
-                  </View>
+                    <MaterialCommunityIcons name="plus-circle-outline" size={18} color={theme.colors.primary} />
+                  </TouchableOpacity>
                 ))}
+                <Text style={styles.tapHint}>Tap a condition to add it as a diagnostic</Text>
               </View>
             )}
           </ScrollView>
@@ -1284,86 +1360,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         );
       })()}
 
-      {/* Doctor Notes Panel */}
-      {showNotesPanel && (
-        <View style={[styles.notesPanel, isTablet && { maxHeight: 450 }]}>
-          <View style={styles.insightsPanelHeader}>
-            <MaterialCommunityIcons name="note-edit" size={20} color={theme.colors.primary} />
-            <Text style={styles.insightsPanelTitle}>Consultation Notes</Text>
-            {notesSaved && (
-              <View style={styles.savedBadge}>
-                <MaterialCommunityIcons name="check" size={12} color={theme.colors.success} />
-                <Text style={styles.savedText}>Saved</Text>
-              </View>
-            )}
-            <IconButton
-              icon="content-save"
-              size={18}
-              onPress={() => saveNotes(doctorNotes)}
-              style={styles.closeInsights}
-            />
-            <IconButton
-              icon="close"
-              size={18}
-              onPress={() => setShowNotesPanel(false)}
-              style={styles.closeInsights}
-            />
-          </View>
-          <TextInput
-            style={styles.notesInput}
-            multiline
-            placeholder="Type your consultation notes here..."
-            placeholderTextColor={theme.colors.onSurfaceVariant}
-            value={doctorNotes}
-            onChangeText={setDoctorNotes}
-            textAlignVertical="top"
-          />
-          <Text style={styles.autoSaveHint}>Auto-saves every 30 seconds</Text>
-        </View>
-      )}
-
-      {/* Ask AI Panel */}
-      {showAskAI && (
-        <View style={[styles.notesPanel, isTablet && { maxHeight: 450 }]}>
-          <View style={styles.insightsPanelHeader}>
-            <MaterialCommunityIcons name="robot" size={20} color={theme.colors.secondary} />
-            <Text style={styles.insightsPanelTitle}>Ask AI</Text>
-            <IconButton
-              icon="close"
-              size={18}
-              onPress={() => setShowAskAI(false)}
-              style={styles.closeInsights}
-            />
-          </View>
-          <View style={styles.askAiInputRow}>
-            <TextInput
-              style={styles.askAiInput}
-              placeholder="Ask about conditions, treatments, guidelines..."
-              placeholderTextColor={theme.colors.onSurfaceVariant}
-              value={aiQuestion}
-              onChangeText={setAiQuestion}
-              onSubmitEditing={handleAskAI}
-              returnKeyType="send"
-            />
-            <IconButton
-              icon="send"
-              size={22}
-              iconColor="#FFFFFF"
-              style={styles.askAiSend}
-              onPress={handleAskAI}
-              disabled={aiLoading || !aiQuestion.trim()}
-            />
-          </View>
-          {aiLoading && (
-            <Text style={styles.askAiLoading}>Thinking...</Text>
-          )}
-          {aiAnswer ? (
-            <ScrollView style={styles.askAiAnswer} showsVerticalScrollIndicator={false}>
-              <Text style={styles.insightText}>{aiAnswer}</Text>
-            </ScrollView>
-          ) : null}
-        </View>
-      )}
+      {/* Notes and Ask AI panels are now integrated into the Live Clinical Assist tabbed pane */}
 
       {/* Report Generation Panel */}
       {showReport && (
@@ -1434,162 +1431,49 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         </View>
       )}
 
-      {/* Live Transcript Panel */}
-      {showLiveTranscript && (
-        <View style={[styles.notesPanel, isTablet && { maxHeight: 500 }]}>
-          <View style={styles.insightsPanelHeader}>
-            <MaterialCommunityIcons name="microphone-message" size={20} color={theme.colors.secondary} />
-            <Text style={styles.insightsPanelTitle}>Live Transcript</Text>
-            {isListening && (
-              <View style={styles.listeningBadge}>
-                <View style={styles.listeningDot} />
-                <Text style={styles.listeningText}>Listening...</Text>
-              </View>
-            )}
-            <IconButton
-              icon="close"
-              size={18}
-              onPress={() => { setShowLiveTranscript(false); stopListening(); }}
-              style={styles.closeInsights}
-            />
-          </View>
+      {/* Live Transcript panel is now integrated into the AI Assist tab */}
 
-          {/* Transcript entries */}
-          <ScrollView
-            ref={liveTranscriptScrollRef}
-            style={styles.liveTranscriptScroll}
-            showsVerticalScrollIndicator={false}
-          >
-            {liveTranscriptEntries.length === 0 ? (
-              <Text style={styles.insightText}>
-                No conversation recorded yet. {sttAvailable ? 'Tap "Start Listening" to begin.' : 'Type entries below to record the conversation.'}
-              </Text>
-            ) : (
-              liveTranscriptEntries.map((entry, index) => (
-                <View key={index} style={[styles.transcriptBubble, entry.speaker === 'Doctor' ? styles.transcriptAi : styles.transcriptPatient]}>
-                  <View style={styles.transcriptHeader}>
-                    <MaterialCommunityIcons
-                      name={entry.speaker === 'Doctor' ? 'doctor' : 'account'}
-                      size={14}
-                      color={entry.speaker === 'Doctor' ? theme.colors.primary : theme.colors.secondary}
-                    />
-                    <Text style={[styles.transcriptRole, { color: entry.speaker === 'Doctor' ? theme.colors.primary : theme.colors.secondary }]}>
-                      {entry.speaker}
-                    </Text>
-                    <Text style={styles.liveTimestamp}>
-                      {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                  <Text style={styles.transcriptMessage}>{entry.text}</Text>
-                </View>
-              ))
-            )}
-
-            {/* Live AI Insight */}
-            {liveInsight ? (
-              <View style={styles.liveInsightBox}>
-                <View style={styles.transcriptHeader}>
-                  <MaterialCommunityIcons name="lightbulb-on" size={14} color={theme.colors.warning} />
-                  <Text style={[styles.transcriptRole, { color: theme.colors.warning }]}>AI INSIGHT</Text>
-                </View>
-                <Text style={styles.transcriptMessage}>{liveInsight}</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-
-          {/* Manual text entry */}
-          <View style={styles.askAiInputRow}>
-            <TextInput
-              style={styles.askAiInput}
-              placeholder="Type what's being said..."
-              placeholderTextColor={theme.colors.onSurfaceVariant}
-              value={manualTranscriptInput}
-              onChangeText={setManualTranscriptInput}
-              onSubmitEditing={handleManualTranscriptEntry}
-              returnKeyType="send"
-            />
-            <IconButton
-              icon="send"
-              size={22}
-              iconColor="#FFFFFF"
-              style={styles.askAiSend}
-              onPress={handleManualTranscriptEntry}
-              disabled={!manualTranscriptInput.trim()}
-            />
-          </View>
-
-          {/* Action buttons */}
-          <View style={styles.liveTranscriptActions}>
-            {sttAvailable && (
-              <TouchableOpacity
-                style={[styles.liveActionButton, isListening && styles.liveActionButtonActive]}
-                onPress={isListening ? stopListening : startListening}
-              >
-                <MaterialCommunityIcons
-                  name={isListening ? 'stop' : 'microphone'}
-                  size={16}
-                  color={isListening ? '#FFFFFF' : theme.colors.primary}
+      {/* Floating call controls plane */}
+      {showFloatingControls && (
+        <View style={styles.floatingControlsOverlay} pointerEvents="box-none">
+          <View style={styles.controlsContainer}>
+            <Surface style={[styles.controlsPanel, shadows.large]}>
+              <View style={styles.controlButton}>
+                <IconButton
+                  icon="microphone"
+                  size={28}
+                  iconColor="#FFFFFF"
+                  style={[styles.iconButton, styles.iconButtonActive]}
+                  onPress={showDailyControlsHint}
                 />
-                <Text style={[styles.liveActionText, isListening && { color: '#FFFFFF' }]}>
-                  {isListening ? 'Stop' : 'Start Listening'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.liveActionButton}
-              onPress={handleAnalyzeConversation}
-              disabled={liveInsightLoading || liveTranscriptEntries.length === 0}
-            >
-              {liveInsightLoading ? (
-                <ActivityIndicator size={14} color={theme.colors.primary} />
-              ) : (
-                <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={theme.colors.primary} />
-              )}
-              <Text style={styles.liveActionText}>
-                {liveInsightLoading ? 'Analyzing...' : 'Analyze'}
-              </Text>
-            </TouchableOpacity>
+                <Text style={styles.controlLabel}>Mic</Text>
+              </View>
+
+              <View style={styles.controlButton}>
+                <IconButton
+                  icon="phone-hangup"
+                  size={32}
+                  iconColor="#FFFFFF"
+                  style={[styles.iconButton, styles.iconButtonEnd]}
+                  onPress={endCall}
+                />
+                <Text style={styles.controlLabel}>End</Text>
+              </View>
+
+              <View style={styles.controlButton}>
+                <IconButton
+                  icon="video"
+                  size={28}
+                  iconColor="#FFFFFF"
+                  style={[styles.iconButton, styles.iconButtonActive]}
+                  onPress={showDailyControlsHint}
+                />
+                <Text style={styles.controlLabel}>Camera</Text>
+              </View>
+            </Surface>
           </View>
         </View>
       )}
-
-      {/* Controls */}
-      <View style={styles.controlsContainer}>
-        <Surface style={[styles.controlsPanel, shadows.large]}>
-          <View style={styles.controlButton}>
-            <IconButton
-              icon="microphone"
-              size={28}
-              iconColor="#FFFFFF"
-              style={[styles.iconButton, styles.iconButtonActive]}
-              onPress={showDailyControlsHint}
-            />
-            <Text style={styles.controlLabel}>Mic</Text>
-          </View>
-
-          <View style={styles.controlButton}>
-            <IconButton
-              icon="phone-hangup"
-              size={32}
-              iconColor="#FFFFFF"
-              style={[styles.iconButton, styles.iconButtonEnd]}
-              onPress={endCall}
-            />
-            <Text style={styles.controlLabel}>End</Text>
-          </View>
-
-          <View style={styles.controlButton}>
-            <IconButton
-              icon="video"
-              size={28}
-              iconColor="#FFFFFF"
-              style={[styles.iconButton, styles.iconButtonActive]}
-              onPress={showDailyControlsHint}
-            />
-            <Text style={styles.controlLabel}>Camera</Text>
-          </View>
-        </Surface>
-      </View>
     </SafeAreaView>
   );
 }
@@ -1712,12 +1596,22 @@ const styles = StyleSheet.create({
     right: spacing.lg,
     flexDirection: 'row',
     gap: spacing.sm,
+    zIndex: 15,
+    elevation: 15,
   },
   insightsButton: {
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   insightsButtonActive: {
     backgroundColor: theme.colors.primary,
+  },
+  videoTapZone: {
+    position: 'absolute',
+    left: 0,
+    right: 96,
+    top: 0,
+    bottom: 0,
+    zIndex: 2,
   },
   insightsPanel: {
     position: 'absolute',
@@ -1823,18 +1717,255 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.outline,
   },
+  medActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    flexWrap: 'wrap',
+  },
+  medActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  medActionText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  tapHint: {
+    fontSize: 10,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+  diagnosticsSection: {
+    marginBottom: spacing.sm,
+  },
+  diagnosticsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  diagnosticChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: `${theme.colors.primary}10`,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: theme.roundness,
+  },
+  diagnosticText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  saveNowButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 'auto' as any,
+  },
+  sttControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    flexWrap: 'wrap',
+  },
+  sttButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  sttButtonActive: {
+    backgroundColor: theme.colors.error,
+    borderColor: theme.colors.error,
+  },
+  sttButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  manualEntryRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  manualEntryInput: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.colors.onSurface,
+    paddingVertical: 0,
+  },
+  liveTranscriptIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: `${theme.colors.secondary}10`,
+    padding: spacing.sm,
+    borderRadius: theme.roundness,
+    marginBottom: spacing.sm,
+  },
+  liveTranscriptIndicatorText: {
+    fontSize: 11,
+    color: theme.colors.secondary,
+    fontWeight: '500',
+  },
+  assistPane: {
+    height: 300,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
+  assistPaneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: '#FAFAFA',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  assistPaneHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  assistPaneTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+  },
+  assistPaneHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  assistHeaderBtn: {
+    padding: 4,
+  },
+  assistPaneScroll: {
+    flex: 1,
+  },
+  assistSection: {
+    padding: spacing.md,
+  },
+  assistCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 10,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  assistCardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: spacing.xs,
+  },
+  assistCardText: {
+    fontSize: 13,
+    color: theme.colors.onSurface,
+    lineHeight: 18,
+  },
+  assistDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    marginHorizontal: spacing.md,
+  },
+  aiChatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  aiChatInput: {
+    flex: 1,
+    fontSize: 13,
+    color: theme.colors.onSurface,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  aiChatSend: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    padding: 6,
+  },
+  aiChatAnswer: {
+    fontSize: 13,
+    color: theme.colors.onSurface,
+    lineHeight: 18,
+    marginTop: spacing.xs,
+    padding: spacing.xs,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 6,
+  },
+  notesSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  notesTextarea: {
+    minHeight: 80,
+    maxHeight: 120,
+    fontSize: 13,
+    color: theme.colors.onSurface,
+    lineHeight: 18,
+    padding: spacing.sm,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  floatingControlsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 40,
+    elevation: 40,
+  },
   controlsContainer: {
-    paddingBottom: spacing.xl,
     paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    backgroundColor: 'transparent',
   },
   controlsPanel: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     borderRadius: theme.roundness * 2,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(20,20,20,0.72)',
   },
   controlButton: {
     alignItems: 'center',
@@ -1951,19 +2082,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     zIndex: 10,
     elevation: 10,
-  },
-  notesInput: {
-    flex: 1,
-    minHeight: 150,
-    maxHeight: 180,
-    fontSize: 14,
-    color: theme.colors.onSurface,
-    lineHeight: 20,
-    padding: spacing.md,
-    backgroundColor: 'rgba(0,0,0,0.03)',
-    borderRadius: theme.roundness,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
   },
   autoSaveHint: {
     fontSize: 11,

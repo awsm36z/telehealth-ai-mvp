@@ -99,7 +99,11 @@
     "voiceUnavailable": "Voice Input Unavailable",
     "voiceUnavailableMessage": "Speech recognition requires a development build. Switching to text mode.",
     "micPermissionRequired": "Microphone Permission Required",
-    "micPermissionMessage": "Please allow microphone access to use voice input."
+    "micPermissionMessage": "Please allow microphone access to use voice input.",
+    "skipButton": "Skip",
+    "skipTitle": "Skip Triage?",
+    "skipMessage": "You can skip the AI triage and go directly to the waiting room. The doctor will have less context about your symptoms.",
+    "skipConfirm": "Skip to Doctor"
   },
   "waitingRoom": {
     "title": "Waiting Room",

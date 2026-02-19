@@ -16,8 +16,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
 import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
+import { getCurrentLanguage } from '../../i18n';
 import api from '../../utils/api';
 
 // Try to import speech recognition (requires dev build)
@@ -67,6 +69,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
   const [transcript, setTranscript] = useState('');
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
   const [sttAvailable, setSttAvailable] = useState(false);
+  const currentSoundRef = useRef<Audio.Sound | null>(null);
 
   // Pulse animation for mic button
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -118,11 +121,18 @@ export default function TriageChatScreen({ navigation, route }: any) {
   useEffect(() => {
     return () => {
       Speech.stop();
+      currentSoundRef.current?.unloadAsync().catch(() => {});
     };
   }, []);
 
   const initializeVoice = async () => {
     try {
+      // Configure audio session for playback (fixes iOS audio not working until mic is activated)
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+
       // Find a female voice for TTS
       const voices = await Speech.getAvailableVoicesAsync();
       const englishVoices = voices.filter((v) => v.language.startsWith('en'));
@@ -161,28 +171,76 @@ export default function TriageChatScreen({ navigation, route }: any) {
     }
   };
 
-  const speakMessage = useCallback((text: string, onDone?: () => void) => {
-    // Stop any current speech
+  const stopCurrentAudio = useCallback(async () => {
     Speech.stop();
+    if (currentSoundRef.current) {
+      try {
+        await currentSoundRef.current.stopAsync();
+        await currentSoundRef.current.unloadAsync();
+      } catch {}
+      currentSoundRef.current = null;
+    }
+  }, []);
 
-    setIsSpeaking(true);
+  const speakWithOpenAI = useCallback(async (text: string, onDone?: () => void): Promise<boolean> => {
+    try {
+      const response = await api.fetchTtsAudio(text, 'nova');
+      if (!response.data) return false;
+
+      // Convert ArrayBuffer to base64 for expo-av
+      const bytes = new Uint8Array(response.data);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: `data:audio/mpeg;base64,${base64}` },
+        { shouldPlay: true }
+      );
+      currentSoundRef.current = sound;
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          setIsSpeaking(false);
+          sound.unloadAsync().catch(() => {});
+          currentSoundRef.current = null;
+          onDone?.();
+        }
+      });
+
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const speakWithFallback = useCallback((text: string, onDone?: () => void) => {
+    const lang = getCurrentLanguage();
+    const speechLang = lang === 'fr' ? 'fr-FR' : lang === 'ar' ? 'ar-SA' : 'en-US';
     Speech.speak(text, {
-      language: 'en-US',
-      pitch: 1.1, // Slightly higher pitch for feminine voice
-      rate: 0.9,  // Slightly slower for empathetic, clear delivery
-      voice: selectedVoice,
-      onDone: () => {
-        setIsSpeaking(false);
-        onDone?.();
-      },
-      onStopped: () => {
-        setIsSpeaking(false);
-      },
-      onError: () => {
-        setIsSpeaking(false);
-      },
+      language: speechLang,
+      pitch: 1.1,
+      rate: 0.9,
+      voice: lang === 'en' ? selectedVoice : undefined,
+      onDone: () => { setIsSpeaking(false); onDone?.(); },
+      onStopped: () => { setIsSpeaking(false); },
+      onError: () => { setIsSpeaking(false); },
     });
   }, [selectedVoice]);
+
+  const speakMessage = useCallback(async (text: string, onDone?: () => void) => {
+    await stopCurrentAudio();
+    setIsSpeaking(true);
+
+    // Try OpenAI TTS first, fall back to device TTS
+    const success = await speakWithOpenAI(text, onDone);
+    if (!success) {
+      speakWithFallback(text, onDone);
+    }
+  }, [stopCurrentAudio, speakWithOpenAI, speakWithFallback]);
 
   const startListening = async () => {
     if (!ExpoSpeechRecognitionModule || !sttAvailable) {
@@ -197,7 +255,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
 
     // Stop TTS if speaking
     if (isSpeaking) {
-      Speech.stop();
+      stopCurrentAudio();
     }
 
     try {
@@ -238,12 +296,57 @@ export default function TriageChatScreen({ navigation, route }: any) {
   };
 
   const handleBackPress = () => {
-    Speech.stop();
+    stopCurrentAudio();
     if (navigation.canGoBack()) {
       navigation.goBack();
       return;
     }
     navigation.navigate('PatientHome');
+  };
+
+  const handleSkipTriage = () => {
+    Alert.alert(
+      t('triage.skipTitle'),
+      t('triage.skipMessage'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('triage.skipConfirm'),
+          onPress: async () => {
+            stopCurrentAudio();
+            if (isListening) stopListening();
+
+            // Build partial triage data from whatever conversation has occurred
+            const conversationSummary = messages
+              .map((m) => `${m.role === 'user' ? 'Patient' : 'Nurse'}: ${m.content}`)
+              .join('\n');
+
+            const partialTriageData = {
+              summary: conversationSummary || 'Patient chose to skip triage.',
+              skipped: true,
+            };
+
+            await AsyncStorage.setItem(
+              CONSULTATION_STATE_KEY,
+              JSON.stringify({
+                status: 'triage_complete',
+                patientId,
+                triageData: partialTriageData,
+                insights: null,
+                updatedAt: new Date().toISOString(),
+              })
+            );
+
+            api.trackEvent('triage_skipped', { questionsAnswered: questionCount - 1 });
+
+            navigation.navigate('WaitingRoom', {
+              triageData: partialTriageData,
+              insights: null,
+            });
+          },
+        },
+      ]
+    );
   };
 
   const initializeTriage = async () => {
@@ -359,6 +462,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
         messages: [{ role: 'user', content: '__INITIAL_GREETING__' }],
         patientId: resolvedPatientId,
         biometrics: consultationBiometrics || undefined,
+        language: getCurrentLanguage(),
       });
 
       if (response.data && !response.error) {
@@ -435,6 +539,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
         messages: [...messages, userMessage],
         patientId,
         biometrics: consultationBiometrics || undefined,
+        language: getCurrentLanguage(),
       });
 
       if (response.error) {
@@ -469,7 +574,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
         // Wait for TTS to finish before navigating to patient-facing AI insights.
         const delay = isVoiceMode ? 4000 : 2500;
         setTimeout(() => {
-          Speech.stop();
+          stopCurrentAudio();
           navigation.navigate('InsightsScreen', {
             triageData: response.data.triageData,
             insights: response.data.insights,
@@ -511,13 +616,13 @@ export default function TriageChatScreen({ navigation, route }: any) {
 
   const toggleMode = () => {
     if (isListening) stopListening();
-    if (isSpeaking) Speech.stop();
+    if (isSpeaking) stopCurrentAudio();
     setIsVoiceMode(!isVoiceMode);
   };
 
   const toggleSpeaker = () => {
     if (isSpeaking) {
-      Speech.stop();
+      stopCurrentAudio();
     }
   };
 
@@ -547,14 +652,21 @@ export default function TriageChatScreen({ navigation, route }: any) {
               {isVoiceMode ? t('triage.voiceMode') : t('triage.textMode')} - {t('triage.questionOf', { current: questionCount })}
             </Text>
           </View>
-          {/* Voice/Text toggle in header */}
-          <IconButton
-            icon={isVoiceMode ? 'keyboard' : 'microphone'}
-            iconColor="#FFFFFF"
-            size={22}
-            onPress={toggleMode}
-            style={styles.modeToggle}
-          />
+          <View style={styles.headerActions}>
+            {/* Skip to Doctor button */}
+            <TouchableOpacity style={styles.skipButton} onPress={handleSkipTriage}>
+              <Text style={styles.skipButtonText}>{t('triage.skipButton')}</Text>
+              <MaterialCommunityIcons name="arrow-right" size={14} color="#FFFFFF" />
+            </TouchableOpacity>
+            {/* Voice/Text toggle in header */}
+            <IconButton
+              icon={isVoiceMode ? 'keyboard' : 'microphone'}
+              iconColor="#FFFFFF"
+              size={22}
+              onPress={toggleMode}
+              style={styles.modeToggle}
+            />
+          </View>
         </View>
         <ProgressBar
           progress={progress}
@@ -855,6 +967,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.8)',
     marginTop: spacing.xs / 2,
+  },
+  headerActions: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  skipButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  skipButtonText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
   },
   modeToggle: {
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
