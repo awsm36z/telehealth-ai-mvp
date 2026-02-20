@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import { getCurrentLanguage } from '../../i18n';
 import api from '../../utils/api';
+import RealtimeVoiceView, { RealtimeVoiceHandle } from '../../components/RealtimeVoiceView';
 
 // Try to import speech recognition (requires dev build)
 let ExpoSpeechRecognitionModule: any = null;
@@ -71,6 +72,12 @@ export default function TriageChatScreen({ navigation, route }: any) {
   const [sttAvailable, setSttAvailable] = useState(false);
   const currentSoundRef = useRef<Audio.Sound | null>(null);
 
+  // Realtime voice state
+  const [isRealtimeActive, setIsRealtimeActive] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
+  const realtimeRef = useRef<RealtimeVoiceHandle>(null);
+
   // Pulse animation for mic button
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
@@ -117,11 +124,12 @@ export default function TriageChatScreen({ navigation, route }: any) {
     }
   }, [isListening]);
 
-  // Clean up TTS on unmount
+  // Clean up TTS and realtime on unmount
   useEffect(() => {
     return () => {
       Speech.stop();
       currentSoundRef.current?.unloadAsync().catch(() => {});
+      realtimeRef.current?.endSession();
     };
   }, []);
 
@@ -243,8 +251,17 @@ export default function TriageChatScreen({ navigation, route }: any) {
   }, [stopCurrentAudio, speakWithOpenAI, speakWithFallback]);
 
   const startListening = async () => {
+    // If realtime is active, this is handled by the WebView — no-op
+    if (isRealtimeActive) return;
+
+    // Try to start realtime mode first (preferred)
+    if (patientId && !isRealtimeActive) {
+      startRealtimeSession();
+      return;
+    }
+
+    // Fallback to legacy STT
     if (!ExpoSpeechRecognitionModule || !sttAvailable) {
-      // STT not available, switch to text mode
       setIsVoiceMode(false);
       Alert.alert(
         t('triage.voiceUnavailable'),
@@ -253,7 +270,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
       return;
     }
 
-    // Stop TTS if speaking
     if (isSpeaking) {
       stopCurrentAudio();
     }
@@ -314,6 +330,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
           text: t('triage.skipConfirm'),
           onPress: async () => {
             stopCurrentAudio();
+            if (isRealtimeActive) stopRealtimeSession();
             if (isListening) stopListening();
 
             // Build partial triage data from whatever conversation has occurred
@@ -348,6 +365,117 @@ export default function TriageChatScreen({ navigation, route }: any) {
       ]
     );
   };
+
+  // --- Realtime Voice Handlers ---
+  const startRealtimeSession = useCallback(() => {
+    if (!patientId) return;
+    setIsRealtimeActive(true);
+    api.trackEvent('realtime_voice_started');
+  }, [patientId]);
+
+  const stopRealtimeSession = useCallback(() => {
+    realtimeRef.current?.endSession();
+    setIsRealtimeActive(false);
+    setIsRealtimeConnected(false);
+    setIsUserSpeaking(false);
+  }, []);
+
+  const handleRealtimeTranscript = useCallback(
+    (msg: { role: 'ai' | 'user'; content: string }) => {
+      if (!msg.content.trim()) return;
+
+      // Check for triage completion in AI messages
+      const isComplete =
+        msg.role === 'ai' &&
+        msg.content.toLowerCase().includes('triage complete');
+
+      const cleanContent = msg.content
+        .replace(/\[?triage[_ ]?complete\]?/gi, '')
+        .trim();
+
+      if (!cleanContent) return;
+
+      const newMessage: Message = {
+        id: `${Date.now()}-${msg.role}`,
+        role: msg.role === 'ai' ? 'ai' : 'user',
+        content: cleanContent,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, newMessage]);
+
+      if (msg.role === 'user') {
+        const nextQ = questionCount + 1;
+        setQuestionCount(nextQ);
+        setProgress(Math.min(nextQ / 10, 1));
+      }
+
+      if (isComplete && patientId) {
+        // End realtime session and generate insights via the text endpoint
+        stopRealtimeSession();
+        api.trackEvent('triage_completed_realtime', { questionCount });
+
+        // Call the triage chat endpoint with all messages to generate insights
+        (async () => {
+          try {
+            setIsTyping(true);
+            const allMessages = [...messages, newMessage].map((m) => ({
+              role: m.role,
+              content: m.content,
+            }));
+
+            // Force completion by adding a flag message
+            const response = await api.triageChat({
+              messages: allMessages,
+              patientId,
+              language: getCurrentLanguage(),
+            });
+
+            if (response.data?.triageData && response.data?.insights) {
+              await persistCompletedState(patientId, response.data.triageData, response.data.insights);
+              setTimeout(() => {
+                navigation.navigate('InsightsScreen', {
+                  triageData: response.data.triageData,
+                  insights: response.data.insights,
+                  fromTriageComplete: true,
+                });
+              }, 1500);
+            } else {
+              // Fallback: navigate to waiting room with conversation summary
+              const conversationSummary = [...messages, newMessage]
+                .map((m) => `${m.role === 'user' ? 'Patient' : 'Nurse'}: ${m.content}`)
+                .join('\n');
+              const triageData = { summary: conversationSummary };
+              await persistCompletedState(patientId, triageData, null);
+              setTimeout(() => {
+                navigation.navigate('WaitingRoom', { triageData, insights: null });
+              }, 1500);
+            }
+          } catch (error) {
+            console.error('Error generating insights after realtime triage:', error);
+            navigation.navigate('WaitingRoom', { triageData: { summary: 'Triage completed via voice.' }, insights: null });
+          } finally {
+            setIsTyping(false);
+          }
+        })();
+      }
+    },
+    [messages, patientId, questionCount, stopRealtimeSession, navigation]
+  );
+
+  const handleRealtimeError = useCallback(
+    (error: string) => {
+      console.error('Realtime error:', error);
+      setIsRealtimeActive(false);
+      setIsRealtimeConnected(false);
+      // Fall back to legacy voice mode
+      Alert.alert(
+        t('triage.voiceError', { defaultValue: 'Voice Error' }),
+        t('triage.voiceErrorMessage', { defaultValue: 'Real-time voice is unavailable. Switching to standard voice mode.' }),
+      );
+    },
+    [t]
+  );
 
   const initializeTriage = async () => {
     try {
@@ -615,6 +743,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
   };
 
   const toggleMode = () => {
+    if (isRealtimeActive) stopRealtimeSession();
     if (isListening) stopListening();
     if (isSpeaking) stopCurrentAudio();
     setIsVoiceMode(!isVoiceMode);
@@ -628,6 +757,26 @@ export default function TriageChatScreen({ navigation, route }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Hidden Realtime Voice WebView */}
+      <RealtimeVoiceView
+        ref={realtimeRef}
+        visible={isRealtimeActive}
+        patientId={patientId || ''}
+        language={getCurrentLanguage()}
+        onTranscript={handleRealtimeTranscript}
+        onConnected={() => setIsRealtimeConnected(true)}
+        onDisconnected={() => {
+          setIsRealtimeConnected(false);
+          setIsRealtimeActive(false);
+        }}
+        onUserSpeaking={setIsUserSpeaking}
+        onError={handleRealtimeError}
+        onEnd={() => {
+          setIsRealtimeActive(false);
+          setIsRealtimeConnected(false);
+        }}
+      />
+
       {/* Header */}
       <View style={styles.header}>
         <LinearGradient
@@ -683,14 +832,22 @@ export default function TriageChatScreen({ navigation, route }: any) {
         </Text>
       </View>
 
-      {/* Speaking indicator */}
-      {isSpeaking && (
+      {/* Speaking / Realtime indicator */}
+      {isRealtimeActive && isRealtimeConnected ? (
+        <TouchableOpacity style={styles.realtimeBar} onPress={stopRealtimeSession} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="microphone" size={16} color="#FFFFFF" />
+          <Text style={styles.realtimeBarText}>
+            {isUserSpeaking ? t('triage.listening', { defaultValue: 'Listening...' }) : t('triage.liveConversation', { defaultValue: 'Live voice — tap to end' })}
+          </Text>
+          <MaterialCommunityIcons name="stop-circle" size={18} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : isSpeaking ? (
         <TouchableOpacity style={styles.speakingBar} onPress={toggleSpeaker} activeOpacity={0.7}>
           <MaterialCommunityIcons name="volume-high" size={16} color={theme.colors.primary} />
           <Text style={styles.speakingText}>{t('triage.nurseSpeaking')}</Text>
           <MaterialCommunityIcons name="close-circle" size={16} color={theme.colors.onSurfaceVariant} />
         </TouchableOpacity>
-      )}
+      ) : null}
 
       {/* Messages */}
       <KeyboardAvoidingView
@@ -1022,6 +1179,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: theme.colors.primary,
+    flex: 1,
+  },
+  realtimeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: theme.colors.primary,
+  },
+  realtimeBarText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
     flex: 1,
   },
   keyboardView: {

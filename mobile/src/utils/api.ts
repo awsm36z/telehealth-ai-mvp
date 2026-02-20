@@ -917,6 +917,33 @@ const api = {
     }
   },
 
+  // OpenAI Realtime Voice Session
+  createRealtimeSession: async (language: string, patientId: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/realtime/session`, {
+        method: 'POST',
+        body: JSON.stringify({ language, patientId }),
+      }, 15000);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: data.error || 'Failed to create realtime session',
+        };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Realtime session error:', error.message);
+      return {
+        data: null,
+        error: error.message || 'Failed to create realtime session',
+      };
+    }
+  },
+
   // Text-to-Speech
   getTtsAudioUrl: (text: string, voice: string = 'nova') => {
     return `${API_URL}/tts`;

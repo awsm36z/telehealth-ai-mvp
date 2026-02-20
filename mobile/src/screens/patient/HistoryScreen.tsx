@@ -21,7 +21,7 @@ interface Consultation {
   urgency?: string;
   recommendation?: string;
   nextSteps?: string[];
-  possibleConditions?: string[];
+  possibleConditions?: Array<string | { name: string; confidence?: string }>;
   triageTranscript?: Array<{ role: 'user' | 'ai' | 'assistant'; content: string }>;
 }
 

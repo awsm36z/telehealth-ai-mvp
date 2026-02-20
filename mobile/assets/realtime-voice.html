@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Realtime Voice</title>
+  <style>
+    body { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <script>
+    let pc = null;
+    let dc = null;
+    let localStream = null;
+
+    function sendToRN(type, payload) {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type, ...payload }));
+      }
+    }
+
+    async function startSession(config) {
+      try {
+        const { clientSecret, model } = config;
+
+        // Create peer connection
+        pc = new RTCPeerConnection();
+
+        // Set up remote audio playback
+        const audioEl = document.createElement('audio');
+        audioEl.autoplay = true;
+        audioEl.playsInline = true;
+        document.body.appendChild(audioEl);
+
+        pc.ontrack = (event) => {
+          audioEl.srcObject = event.streams[0];
+        };
+
+        // Create data channel for events
+        dc = pc.createDataChannel('oai-events');
+
+        dc.onopen = () => {
+          sendToRN('connected', {});
+        };
+
+        dc.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            handleRealtimeEvent(msg);
+          } catch (e) {
+            // ignore parse errors
+          }
+        };
+
+        dc.onclose = () => {
+          sendToRN('disconnected', {});
+        };
+
+        // Get microphone audio
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream.getTracks().forEach((track) => {
+          pc.addTrack(track, localStream);
+        });
+
+        // Create and set local SDP offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // Send offer to OpenAI Realtime API
+        const sdpResponse = await fetch(
+          `https://api.openai.com/v1/realtime?model=${model || 'gpt-4o-realtime-preview'}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${clientSecret}`,
+              'Content-Type': 'application/sdp',
+            },
+            body: offer.sdp,
+          }
+        );
+
+        if (!sdpResponse.ok) {
+          const errText = await sdpResponse.text();
+          sendToRN('error', { message: `SDP exchange failed: ${sdpResponse.status}`, details: errText });
+          return;
+        }
+
+        const answerSdp = await sdpResponse.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+        sendToRN('session_started', {});
+      } catch (err) {
+        sendToRN('error', { message: err.message || 'Failed to start session' });
+      }
+    }
+
+    function handleRealtimeEvent(msg) {
+      switch (msg.type) {
+        case 'response.audio_transcript.done':
+          // AI finished speaking — send full transcript
+          sendToRN('ai_transcript', { content: msg.transcript || '' });
+          break;
+
+        case 'conversation.item.input_audio_transcription.completed':
+          // User speech transcribed
+          sendToRN('user_transcript', { content: msg.transcript || '' });
+          break;
+
+        case 'response.done':
+          sendToRN('response_done', {});
+          break;
+
+        case 'input_audio_buffer.speech_started':
+          sendToRN('user_speaking', {});
+          break;
+
+        case 'input_audio_buffer.speech_stopped':
+          sendToRN('user_stopped_speaking', {});
+          break;
+
+        case 'error':
+          sendToRN('error', { message: msg.error?.message || 'Realtime API error' });
+          break;
+
+        default:
+          // Forward other events for debugging
+          break;
+      }
+    }
+
+    function sendEvent(event) {
+      if (dc && dc.readyState === 'open') {
+        dc.send(JSON.stringify(event));
+      }
+    }
+
+    function muteAudio() {
+      if (localStream) {
+        localStream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
+    }
+
+    function unmuteAudio() {
+      if (localStream) {
+        localStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      }
+    }
+
+    function endSession() {
+      if (dc) {
+        try { dc.close(); } catch (e) {}
+        dc = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+        localStream = null;
+      }
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      sendToRN('session_ended', {});
+    }
+
+    // Listen for messages from React Native
+    window.addEventListener('message', (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+
+        switch (data.type) {
+          case 'start':
+            startSession(data.config);
+            break;
+          case 'mute':
+            muteAudio();
+            break;
+          case 'unmute':
+            unmuteAudio();
+            break;
+          case 'end':
+            endSession();
+            break;
+          case 'send_event':
+            sendEvent(data.event);
+            break;
+        }
+      } catch (e) {
+        // ignore
+      }
+    });
+
+    // Also handle document-level messages (for Android WebView)
+    document.addEventListener('message', (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+
+        switch (data.type) {
+          case 'start':
+            startSession(data.config);
+            break;
+          case 'mute':
+            muteAudio();
+            break;
+          case 'unmute':
+            unmuteAudio();
+            break;
+          case 'end':
+            endSession();
+            break;
+          case 'send_event':
+            sendEvent(data.event);
+            break;
+        }
+      } catch (e) {
+        // ignore
+      }
+    });
+  </script>
+</body>
+</html>

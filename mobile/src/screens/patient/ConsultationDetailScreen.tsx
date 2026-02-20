@@ -140,7 +140,11 @@ export default function ConsultationDetailScreen({ route, navigation }: any) {
             {Array.isArray(consultation.possibleConditions) && consultation.possibleConditions.length > 0 ? (
               <>
                 <Text style={styles.subLabel}>Possible Conditions</Text>
-                <Text style={styles.sectionText}>{consultation.possibleConditions.join(', ')}</Text>
+                <Text style={styles.sectionText}>
+                  {consultation.possibleConditions
+                    .map((c: any) => (typeof c === 'string' ? c : c?.name || 'Unknown'))
+                    .join(', ')}
+                </Text>
               </>
             ) : null}
 
