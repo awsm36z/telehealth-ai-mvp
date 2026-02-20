@@ -424,7 +424,7 @@ COMPLETION RULES (CRITICAL):
 
     if (isComplete) {
       // Generate insights
-      const insights = await generateInsights(messages);
+      const insights = await generateInsights(messages, userLanguage);
 
       // Store insights and triage data for doctor access
       if (patientId) {
@@ -486,7 +486,7 @@ COMPLETION RULES (CRITICAL):
  */
 router.post('/insights', async (req: Request, res: Response) => {
   try {
-    const { messages } = req.body;
+    const { messages, language } = req.body;
 
     if (!messages || messages.length === 0) {
       return res.status(400).json({ message: 'Messages are required' });
@@ -496,7 +496,7 @@ router.post('/insights', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Invalid message format' });
     }
 
-    const insights = await generateInsights(messages);
+    const insights = await generateInsights(messages, language || 'en');
     res.json(insights);
   } catch (error: any) {
     console.error('Generate insights error:', error);
@@ -510,20 +510,27 @@ router.post('/insights', async (req: Request, res: Response) => {
 /**
  * Generate AI insights from triage data
  */
-async function generateInsights(messages: any[]) {
+async function generateInsights(messages: any[], language: string = 'en') {
   try {
     const conversationText = messages
       .map((m) => `${m.role === 'user' ? 'Patient' : 'AI'}: ${m.content}`)
       .join('\n');
 
-    const insightsPrompt = `You are a clinical decision support AI generating insights for a DOCTOR (not a patient) reviewing a case before a video consultation. This is a physician-facing tool.
+    // Language instruction for patient-facing content
+    const langInstruction = language === 'fr'
+      ? '\n\nLANGUAGE RULE (MANDATORY): ALL values in the JSON (summary, keyFindings, condition names, descriptions, nextSteps, disclaimer, etc.) MUST be written in French. The JSON keys must stay in English but all text content must be in French.'
+      : language === 'ar'
+      ? '\n\nLANGUAGE RULE (MANDATORY): ALL values in the JSON (summary, keyFindings, condition names, descriptions, nextSteps, disclaimer, etc.) MUST be written in Moroccan Darija (الدارجة المغربية) using Arabic script. The JSON keys must stay in English but all text content must be in Darija.'
+      : '';
+
+    const insightsPrompt = `You are a clinical decision support AI generating insights for a PATIENT reviewing their triage results before a video consultation. This information helps the patient understand their symptoms while they wait for the doctor.
 
 TRIAGE CONVERSATION:
 ${conversationText}
 
 Generate structured clinical insights in the following JSON format:
 {
-  "summary": "2-3 sentence overview of patient presentation using clinical language",
+  "summary": "2-3 sentence overview of patient presentation in patient-friendly language",
   "keyFindings": ["finding 1", "finding 2", ...],
   "possibleConditions": [
     {
@@ -559,7 +566,7 @@ CRITICAL REQUIREMENTS:
    - Low: Cannot rule out, worth considering
 
 5. Always include at least 2-3 possible conditions with rationale
-6. Next steps should be actionable for the consulting physician`;
+6. Next steps should be actionable for the consulting physician${langInstruction}`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',

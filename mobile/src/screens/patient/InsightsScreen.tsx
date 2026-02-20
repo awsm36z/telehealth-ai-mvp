@@ -4,9 +4,11 @@ import { Text, Button, Surface, Chip, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 
 export default function InsightsScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { insights } = route.params || {};
   const fromWaitingRoom = !!route.params?.fromWaitingRoom;
   const fromTriageComplete = !!route.params?.fromTriageComplete;
@@ -73,9 +75,9 @@ export default function InsightsScreen({ route, navigation }: any) {
           style={styles.header}
         >
           <MaterialCommunityIcons name="brain" size={48} color="#FFFFFF" />
-          <Text style={styles.headerTitle}>AI Health Insights</Text>
+          <Text style={styles.headerTitle}>{t('insights.title')}</Text>
           <Text style={styles.headerSubtitle}>
-            Generated from your symptoms and health data
+            {t('insights.subtitle')}
           </Text>
         </LinearGradient>
 
@@ -84,22 +86,22 @@ export default function InsightsScreen({ route, navigation }: any) {
           <Surface style={[styles.disclaimerBanner, shadows.small]}>
             <MaterialCommunityIcons name="shield-alert" size={24} color="#FF9500" />
             <View style={styles.disclaimerBannerContent}>
-              <Text style={styles.disclaimerBannerTitle}>Not a Medical Diagnosis</Text>
+              <Text style={styles.disclaimerBannerTitle}>{t('insights.disclaimerTitle')}</Text>
               <Text style={styles.disclaimerBannerText}>
-                This information helps your doctor understand your symptoms. It is NOT a medical diagnosis. Only a licensed healthcare provider can diagnose and treat medical conditions.
+                {t('insights.disclaimerText')}
               </Text>
             </View>
           </Surface>
 
           {/* Summary */}
           <Surface style={[styles.section, shadows.medium]}>
-            <SectionHeader icon="file-document" title="Summary" />
+            <SectionHeader icon="file-document" title={t('insights.summary')} />
             <Text style={styles.summaryText}>{data.summary}</Text>
           </Surface>
 
           {/* Key Findings */}
           <Surface style={[styles.section, shadows.medium]}>
-            <SectionHeader icon="clipboard-list" title="Key Findings" />
+            <SectionHeader icon="clipboard-list" title={t('insights.keyFindings')} />
             {data.keyFindings.map((finding: string, index: number) => (
               <View key={index} style={styles.findingItem}>
                 <MaterialCommunityIcons
@@ -114,7 +116,7 @@ export default function InsightsScreen({ route, navigation }: any) {
 
           {/* Possible Conditions */}
           <Surface style={[styles.section, shadows.medium]}>
-            <SectionHeader icon="medical-bag" title="What This Could Be" />
+            <SectionHeader icon="medical-bag" title={t('insights.possibleConditions')} />
             <View style={styles.disclaimer}>
               <MaterialCommunityIcons
                 name="information"
@@ -122,7 +124,7 @@ export default function InsightsScreen({ route, navigation }: any) {
                 color={theme.colors.info}
               />
               <Text style={styles.disclaimerText}>
-                These are possibilities, not diagnoses. Only a doctor can provide a diagnosis.
+                {t('insights.conditionsDisclaimer')}
               </Text>
             </View>
             {data.possibleConditions.map((condition: any, index: number) => (
@@ -137,7 +139,7 @@ export default function InsightsScreen({ route, navigation }: any) {
 
           {/* Next Steps */}
           <Surface style={[styles.section, shadows.medium]}>
-            <SectionHeader icon="shoe-print" title="Next Steps" />
+            <SectionHeader icon="shoe-print" title={t('insights.nextSteps')} />
             {data.nextSteps.map((step: string, index: number) => (
               <View key={index} style={styles.stepItem}>
                 <View style={styles.stepNumber}>
@@ -158,10 +160,10 @@ export default function InsightsScreen({ route, navigation }: any) {
             icon={fromWaitingRoom ? 'arrow-left' : 'video'}
           >
             {fromWaitingRoom
-              ? 'Back to Waiting Room'
+              ? t('insights.backToWaitingRoom')
               : fromTriageComplete
-                ? 'Continue to Waiting Room'
-                : 'Start Video Consultation'}
+                ? t('insights.continueToWaitingRoom')
+                : t('insights.startConsultation')}
           </Button>
 
           {!fromWaitingRoom && (
@@ -171,7 +173,7 @@ export default function InsightsScreen({ route, navigation }: any) {
               style={styles.secondaryButton}
               contentStyle={styles.buttonContent}
             >
-              Save for Later
+              {t('insights.saveForLater')}
             </Button>
           )}
 

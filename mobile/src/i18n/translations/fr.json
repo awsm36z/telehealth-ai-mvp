@@ -122,13 +122,20 @@
   },
   "insights": {
     "title": "Analyses de santé IA",
+    "subtitle": "Généré à partir de vos symptômes et données de santé",
     "disclaimer": "Analyse assistée par IA — Pas un diagnostic médical",
-    "disclaimerText": "Cette analyse est générée par l'IA pour aider votre professionnel de santé. Elle ne constitue pas un diagnostic médical ni une recommandation de traitement. Consultez toujours votre médecin pour les décisions médicales.",
+    "disclaimerTitle": "Pas un diagnostic médical",
+    "disclaimerText": "Ces informations aident votre médecin à comprendre vos symptômes. Ce n'est PAS un diagnostic médical. Seul un professionnel de santé agréé peut diagnostiquer et traiter des conditions médicales.",
     "summary": "Résumé",
     "keyFindings": "Résultats principaux",
-    "possibleConditions": "Conditions possibles",
-    "nextSteps": "Prochaines étapes recommandées",
-    "proceedToConsultation": "Passer à la consultation"
+    "possibleConditions": "Ce que ça pourrait être",
+    "conditionsDisclaimer": "Ce sont des possibilités, pas des diagnostics. Seul un médecin peut fournir un diagnostic.",
+    "nextSteps": "Prochaines étapes",
+    "proceedToConsultation": "Passer à la consultation",
+    "backToWaitingRoom": "Retour à la salle d'attente",
+    "continueToWaitingRoom": "Continuer vers la salle d'attente",
+    "startConsultation": "Démarrer la consultation vidéo",
+    "saveForLater": "Enregistrer pour plus tard"
   },
   "biometrics": {
     "title": "Enregistrer vos biométriques",

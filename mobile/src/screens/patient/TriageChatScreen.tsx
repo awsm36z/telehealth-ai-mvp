@@ -63,9 +63,9 @@ export default function TriageChatScreen({ navigation, route }: any) {
   const [patientId, setPatientId] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Voice mode state
-  const [isVoiceMode, setIsVoiceMode] = useState(true); // Voice by default
+  // Voice state
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
@@ -130,6 +130,44 @@ export default function TriageChatScreen({ navigation, route }: any) {
       Speech.stop();
       currentSoundRef.current?.unloadAsync().catch(() => {});
       realtimeRef.current?.endSession();
+    };
+  }, []);
+
+  // Set up STT event listeners
+  useEffect(() => {
+    if (!ExpoSpeechRecognitionModule) return;
+
+    const handleResult = (event: any) => {
+      const text = event?.results?.[0]?.transcript || '';
+      setTranscript(text);
+      if (event?.isFinal && text.trim()) {
+        setIsListening(false);
+        setIsTranscribing(true);
+        setTimeout(() => {
+          handleVoiceResult(text);
+          setIsTranscribing(false);
+          setTranscript('');
+        }, 500);
+      }
+    };
+
+    const handleEnd = () => {
+      setIsListening(false);
+    };
+
+    const handleError = (event: any) => {
+      console.error('Speech recognition error:', event?.error, event?.message);
+      setIsListening(false);
+    };
+
+    const resultSub = ExpoSpeechRecognitionModule.addListener?.('result', handleResult);
+    const endSub = ExpoSpeechRecognitionModule.addListener?.('end', handleEnd);
+    const errorSub = ExpoSpeechRecognitionModule.addListener?.('error', handleError);
+
+    return () => {
+      resultSub?.remove?.();
+      endSub?.remove?.();
+      errorSub?.remove?.();
     };
   }, []);
 
@@ -251,18 +289,9 @@ export default function TriageChatScreen({ navigation, route }: any) {
   }, [stopCurrentAudio, speakWithOpenAI, speakWithFallback]);
 
   const startListening = async () => {
-    // If realtime is active, this is handled by the WebView — no-op
-    if (isRealtimeActive) return;
+    if (isRealtimeActive || isListening) return;
 
-    // Try to start realtime mode first (preferred)
-    if (patientId && !isRealtimeActive) {
-      startRealtimeSession();
-      return;
-    }
-
-    // Fallback to legacy STT
     if (!ExpoSpeechRecognitionModule || !sttAvailable) {
-      setIsVoiceMode(false);
       Alert.alert(
         t('triage.voiceUnavailable'),
         t('triage.voiceUnavailableMessage'),
@@ -287,8 +316,11 @@ export default function TriageChatScreen({ navigation, route }: any) {
       setTranscript('');
       setIsListening(true);
 
+      const lang = getCurrentLanguage();
+      const sttLang = lang === 'fr' ? 'fr-FR' : lang === 'ar' ? 'ar-MA' : 'en-US';
+
       ExpoSpeechRecognitionModule.start({
-        lang: 'en-US',
+        lang: sttLang,
         interimResults: true,
         continuous: false,
         addsPunctuation: true,
@@ -296,7 +328,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
     } catch (error) {
       console.error('Error starting speech recognition:', error);
       setIsListening(false);
-      setIsVoiceMode(false);
     }
   };
 
@@ -536,7 +567,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
 
       // Speak the last AI message on restore if in voice mode
       const lastAiMessage = [...restoredMessages].reverse().find((m) => m.role === 'ai');
-      if (lastAiMessage && isVoiceMode) {
+      if (lastAiMessage && isRealtimeActive) {
         setTimeout(() => speakMessage(lastAiMessage.content), 500);
       }
 
@@ -605,9 +636,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
         await persistInProgressState(nextMessages, resolvedPatientId, 1, 0.1);
 
         // Speak the initial greeting
-        if (isVoiceMode) {
-          setTimeout(() => speakMessage(aiMessage.content), 300);
-        }
       } else {
         const fallbackMessage: Message = {
           id: '1',
@@ -618,10 +646,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
         const nextMessages = [fallbackMessage];
         setMessages(nextMessages);
         await persistInProgressState(nextMessages, resolvedPatientId, 1, 0.1);
-
-        if (isVoiceMode) {
-          setTimeout(() => speakMessage(fallbackMessage.content), 300);
-        }
       }
     } catch (error) {
       console.error('Error fetching initial greeting:', error);
@@ -633,9 +657,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
       };
       setMessages([fallbackMessage]);
 
-      if (isVoiceMode) {
-        setTimeout(() => speakMessage(fallbackMessage.content), 300);
-      }
     } finally {
       setIsLoading(false);
     }
@@ -690,17 +711,13 @@ export default function TriageChatScreen({ navigation, route }: any) {
       setMessages(nextMessages);
       await persistInProgressState(nextMessages, patientId, nextQuestionCount, nextProgress);
 
-      // Speak AI response if in voice mode
-      if (isVoiceMode) {
-        speakMessage(aiMessage.content);
-      }
 
       if (response.data.complete) {
         api.trackEvent('triage_completed', { questionCount: nextQuestionCount });
         await persistCompletedState(patientId, response.data.triageData, response.data.insights);
 
         // Wait for TTS to finish before navigating to patient-facing AI insights.
-        const delay = isVoiceMode ? 4000 : 2500;
+        const delay = 2500;
         setTimeout(() => {
           stopCurrentAudio();
           navigation.navigate('InsightsScreen', {
@@ -724,9 +741,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
       };
       setMessages((prev) => [...prev, errorMessage]);
 
-      if (isVoiceMode) {
-        speakMessage(errorMessage.content);
-      }
     } finally {
       setIsTyping(false);
     }
@@ -740,13 +754,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
     if (finalTranscript.trim()) {
       sendMessageWithText(finalTranscript);
     }
-  };
-
-  const toggleMode = () => {
-    if (isRealtimeActive) stopRealtimeSession();
-    if (isListening) stopListening();
-    if (isSpeaking) stopCurrentAudio();
-    setIsVoiceMode(!isVoiceMode);
   };
 
   const toggleSpeaker = () => {
@@ -798,7 +805,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
             </View>
             <Text style={styles.headerTitle}>{t('triage.title')}</Text>
             <Text style={styles.headerSubtitle}>
-              {isVoiceMode ? t('triage.voiceMode') : t('triage.textMode')} - {t('triage.questionOf', { current: questionCount })}
+              {t('triage.questionOf', { current: questionCount })}
             </Text>
           </View>
           <View style={styles.headerActions}>
@@ -807,14 +814,6 @@ export default function TriageChatScreen({ navigation, route }: any) {
               <Text style={styles.skipButtonText}>{t('triage.skipButton')}</Text>
               <MaterialCommunityIcons name="arrow-right" size={14} color="#FFFFFF" />
             </TouchableOpacity>
-            {/* Voice/Text toggle in header */}
-            <IconButton
-              icon={isVoiceMode ? 'keyboard' : 'microphone'}
-              iconColor="#FFFFFF"
-              size={22}
-              onPress={toggleMode}
-              style={styles.modeToggle}
-            />
           </View>
         </View>
         <ProgressBar
@@ -870,7 +869,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
               <MessageBubble
                 key={message.id}
                 message={message}
-                onSpeakPress={isVoiceMode ? () => speakMessage(message.content) : undefined}
+                onSpeakPress={message.role === 'ai' ? () => speakMessage(message.content) : undefined}
               />
             ))
           )}
@@ -888,23 +887,58 @@ export default function TriageChatScreen({ navigation, route }: any) {
           <View style={{ height: spacing.xl }} />
         </ScrollView>
 
-        {/* Input Area */}
+        {/* Input Area — ChatGPT-style */}
         <View style={styles.inputContainer}>
-          {isVoiceMode ? (
-            <VoiceInputArea
-              isListening={isListening}
-              transcript={transcript}
-              isTyping={isTyping}
-              pulseAnim={pulseAnim}
-              glowAnim={glowAnim}
-              onStartListening={startListening}
-              onStopListening={stopListening}
-              onSendTranscript={handleVoiceResult}
-              sttAvailable={sttAvailable}
-              setTranscript={setTranscript}
-              setIsListening={setIsListening}
-            />
+          {isListening ? (
+            /* Recording state — show waveform bars + stop button */
+            <View style={styles.recordingContainer}>
+              <View style={styles.recordingBars}>
+                {[...Array(12)].map((_, i) => (
+                  <Animated.View
+                    key={i}
+                    style={[
+                      styles.recordingBar,
+                      {
+                        height: 8 + Math.random() * 24,
+                        opacity: glowAnim.interpolate({
+                          inputRange: [0, 0.3, 1],
+                          outputRange: [0.4, 0.7, 1],
+                        }),
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+              {transcript ? (
+                <Text style={styles.recordingTranscript} numberOfLines={1}>{transcript}</Text>
+              ) : (
+                <Text style={styles.recordingHint}>{t('triage.listening', { defaultValue: 'Listening...' })}</Text>
+              )}
+              <TouchableOpacity
+                style={styles.stopRecordingButton}
+                onPress={() => {
+                  stopListening();
+                  if (transcript.trim()) {
+                    setIsTranscribing(true);
+                    setTimeout(() => {
+                      handleVoiceResult(transcript);
+                      setIsTranscribing(false);
+                      setTranscript('');
+                    }, 500);
+                  }
+                }}
+              >
+                <MaterialCommunityIcons name="stop" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          ) : isTranscribing ? (
+            /* Transcribing state */
+            <View style={styles.transcribingContainer}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <Text style={styles.transcribingText}>{t('triage.transcribing', { defaultValue: 'Transcribing...' })}</Text>
+            </View>
           ) : (
+            /* Default text input with mic + realtime buttons */
             <Surface style={[styles.inputSurface, shadows.medium]}>
               <TextInput
                 value={inputText}
@@ -917,135 +951,59 @@ export default function TriageChatScreen({ navigation, route }: any) {
                 underlineColor="transparent"
                 activeUnderlineColor="transparent"
                 onSubmitEditing={sendMessage}
+                disabled={isTyping}
               />
-              <IconButton
-                icon="send"
-                size={24}
-                iconColor={inputText.trim() ? theme.colors.primary : theme.colors.onSurfaceVariant}
-                onPress={sendMessage}
-                disabled={!inputText.trim() || isTyping}
-                style={styles.sendButton}
-              />
+              {inputText.trim() ? (
+                /* Send button when there's text */
+                <IconButton
+                  icon="send"
+                  size={24}
+                  iconColor={theme.colors.primary}
+                  onPress={sendMessage}
+                  disabled={isTyping}
+                  style={styles.sendButton}
+                />
+              ) : (
+                /* Mic + Realtime buttons when no text */
+                <View style={styles.inputActions}>
+                  {/* Microphone transcription button */}
+                  <IconButton
+                    icon="microphone-outline"
+                    size={22}
+                    iconColor={theme.colors.onSurfaceVariant}
+                    onPress={startListening}
+                    disabled={isTyping || isRealtimeActive}
+                    style={styles.micInputButton}
+                  />
+                  {/* Realtime voice conversation button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.realtimeButton,
+                      isRealtimeActive && styles.realtimeButtonActive,
+                    ]}
+                    onPress={() => {
+                      if (isRealtimeActive) {
+                        stopRealtimeSession();
+                      } else {
+                        startRealtimeSession();
+                      }
+                    }}
+                    disabled={isTyping}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name={isRealtimeActive ? 'stop' : 'waveform'}
+                      size={18}
+                      color="#FFFFFF"
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
             </Surface>
           )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  );
-}
-
-// Voice Input Area component
-function VoiceInputArea({
-  isListening,
-  transcript,
-  isTyping,
-  pulseAnim,
-  glowAnim,
-  onStartListening,
-  onStopListening,
-  onSendTranscript,
-  sttAvailable,
-  setTranscript,
-  setIsListening,
-}: {
-  isListening: boolean;
-  transcript: string;
-  isTyping: boolean;
-  pulseAnim: Animated.Value;
-  glowAnim: Animated.Value;
-  onStartListening: () => void;
-  onStopListening: () => void;
-  onSendTranscript: (text: string) => void;
-  sttAvailable: boolean;
-  setTranscript: (text: string) => void;
-  setIsListening: (value: boolean) => void;
-}) {
-  const { t } = useTranslation();
-
-  // Set up speech recognition event listeners if available
-  useEffect(() => {
-    if (!ExpoSpeechRecognitionModule || !useSpeechRecognitionEvent) return;
-
-    // We can't use the hook here conditionally, so we'll use the module's event emitter directly
-    const handleResult = (event: any) => {
-      const text = event?.results?.[0]?.transcript || '';
-      setTranscript(text);
-      // If final result, send the message
-      if (event?.isFinal && text.trim()) {
-        setIsListening(false);
-        onSendTranscript(text);
-      }
-    };
-
-    const handleEnd = () => {
-      setIsListening(false);
-    };
-
-    const handleError = (event: any) => {
-      console.error('Speech recognition error:', event?.error, event?.message);
-      setIsListening(false);
-    };
-
-    // Subscribe to events
-    const resultSub = ExpoSpeechRecognitionModule.addListener?.('result', handleResult);
-    const endSub = ExpoSpeechRecognitionModule.addListener?.('end', handleEnd);
-    const errorSub = ExpoSpeechRecognitionModule.addListener?.('error', handleError);
-
-    return () => {
-      resultSub?.remove?.();
-      endSub?.remove?.();
-      errorSub?.remove?.();
-    };
-  }, [setTranscript, setIsListening, onSendTranscript]);
-
-  return (
-    <View style={styles.voiceInputContainer}>
-      {/* Transcript preview */}
-      {transcript ? (
-        <View style={styles.transcriptContainer}>
-          <Text style={styles.transcriptText} numberOfLines={2}>{transcript}</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.voiceControls}>
-        {/* Mic button */}
-        <Animated.View style={[styles.micButtonOuter, { transform: [{ scale: pulseAnim }] }]}>
-          <Animated.View
-            style={[
-              styles.micButtonGlow,
-              {
-                opacity: glowAnim,
-                backgroundColor: isListening ? `${theme.colors.primary}30` : 'transparent',
-              },
-            ]}
-          />
-          <TouchableOpacity
-            style={[
-              styles.micButton,
-              isListening && styles.micButtonActive,
-              isTyping && styles.micButtonDisabled,
-            ]}
-            onPress={isListening ? onStopListening : onStartListening}
-            disabled={isTyping}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons
-              name={isListening ? 'microphone' : 'microphone-outline'}
-              size={32}
-              color={isListening ? '#FFFFFF' : theme.colors.primary}
-            />
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Text style={styles.voiceHint}>
-          {isListening
-            ? t('triage.listening')
-            : isTyping
-              ? t('triage.nurseThinking')
-              : t('triage.tapToSpeak')}
-        </Text>
-      </View>
-    </View>
   );
 }
 
@@ -1142,10 +1100,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '600',
-  },
-  modeToggle: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 20,
   },
   progressBar: {
     height: 3,
@@ -1304,61 +1258,81 @@ const styles = StyleSheet.create({
   sendButton: {
     margin: 0,
   },
-  // Voice input styles
-  voiceInputContainer: {
+  inputActions: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.md,
+    gap: 2,
   },
-  transcriptContainer: {
-    backgroundColor: `${theme.colors.primary}10`,
-    borderRadius: theme.roundness,
+  micInputButton: {
+    margin: 0,
+  },
+  realtimeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#1A1A1A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.xs,
+  },
+  realtimeButtonActive: {
+    backgroundColor: theme.colors.error,
+  },
+  // Recording state styles
+  recordingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness * 2,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.md,
-    width: '100%',
-    borderWidth: 1,
-    borderColor: `${theme.colors.primary}30`,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
+    ...shadows.medium,
   },
-  transcriptText: {
+  recordingBars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flex: 1,
+    height: 32,
+  },
+  recordingBar: {
+    width: 3,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 2,
+  },
+  recordingTranscript: {
+    flex: 1,
     fontSize: 14,
     color: theme.colors.onSurface,
     fontStyle: 'italic',
   },
-  voiceControls: {
-    alignItems: 'center',
+  recordingHint: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.colors.onSurfaceVariant,
   },
-  micButtonOuter: {
-    width: 80,
-    height: 80,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  micButtonGlow: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  micButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: `${theme.colors.primary}15`,
-    borderWidth: 3,
-    borderColor: theme.colors.primary,
+  stopRecordingButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.error,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  micButtonActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
+  // Transcribing state
+  transcribingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness * 2,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
+    ...shadows.medium,
   },
-  micButtonDisabled: {
-    opacity: 0.4,
-  },
-  voiceHint: {
-    marginTop: spacing.sm,
-    fontSize: 13,
+  transcribingText: {
+    fontSize: 14,
     color: theme.colors.onSurfaceVariant,
     fontWeight: '500',
   },
