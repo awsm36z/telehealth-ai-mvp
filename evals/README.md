@@ -60,6 +60,13 @@ npm run eval
 npm run eval:report
 ```
 
+### Run System/API Scenarios
+```bash
+npm run eval:system
+```
+
+This validates profile language persistence/updates, message language metadata, and medication-assist endpoint availability plus disclaimer behavior.
+
 ## Scoring
 
 - **Pass Threshold**: 70/100

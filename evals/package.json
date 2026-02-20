@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "eval": "ts-node run-evals.ts",
-    "eval:report": "ts-node run-evals.ts --report"
+    "eval:report": "ts-node run-evals.ts --report",
+    "eval:system": "ts-node run-system-evals.ts"
   },
   "dependencies": {
     "dotenv": "^16.0.3",

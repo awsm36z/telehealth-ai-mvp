@@ -1,7 +1,7 @@
 import request from 'supertest';
 import express from 'express';
 import consultationsRouter from '../consultations';
-import { consultationNotes } from '../../storage';
+import { consultationHistory, consultationNotes, patientProfiles } from '../../storage';
 
 const app = express();
 app.use(express.json());
@@ -10,6 +10,8 @@ app.use('/api/consultations', consultationsRouter);
 describe('Consultations API', () => {
   beforeEach(() => {
     Object.keys(consultationNotes).forEach(key => delete consultationNotes[key]);
+    Object.keys(consultationHistory).forEach(key => delete consultationHistory[key]);
+    Object.keys(patientProfiles).forEach(key => delete patientProfiles[key]);
   });
 
   describe('PUT /api/consultations/:patientId/notes', () => {
@@ -64,6 +66,30 @@ describe('Consultations API', () => {
       const response = await request(app).get('/api/consultations/patient-1/notes');
       expect(response.status).toBe(200);
       expect(response.body.notes).toBe('Prescribed antibiotics');
+    });
+  });
+
+  describe('POST /api/consultations/:patientId/complete', () => {
+    it('should persist doctor and patient language metadata', async () => {
+      patientProfiles['patient-42'] = {
+        id: 'patient-42',
+        name: 'Patient',
+        email: 'p@example.com',
+        language: 'fr',
+      };
+
+      const response = await request(app)
+        .post('/api/consultations/patient-42/complete')
+        .send({
+          roomName: 'room-42',
+          doctorName: 'Dr. Test',
+          doctorLanguage: 'en',
+          patientLanguage: 'fr',
+        })
+        .expect(200);
+
+      expect(response.body.data.doctorLanguage).toBe('en');
+      expect(response.body.data.patientLanguage).toBe('fr');
     });
   });
 });

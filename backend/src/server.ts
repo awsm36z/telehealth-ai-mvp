@@ -33,6 +33,8 @@ import translateRoutes from './routes/translate';
 import liveInsightsRoutes from './routes/live-insights';
 import medicationAssistRoutes from './routes/medication-assist';
 import messagesRoutes from './routes/messages';
+import ttsRoutes from './routes/tts';
+import realtimeRoutes from './routes/realtime';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
@@ -79,6 +81,8 @@ app.use('/api/translate', translateRoutes);
 app.use('/api/live-insights', liveInsightsRoutes);
 app.use('/api/medication-assist', medicationAssistRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/tts', ttsRoutes);
+app.use('/api/realtime', realtimeRoutes);
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {

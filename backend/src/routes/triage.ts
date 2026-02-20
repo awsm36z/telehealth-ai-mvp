@@ -140,7 +140,8 @@ function hasBiometricData(biometrics: any): boolean {
  */
 router.post('/chat', async (req: Request, res: Response) => {
   try {
-    const { messages, sessionId, patientId, biometrics: requestBiometrics } = req.body;
+    const { messages, sessionId, patientId, biometrics: requestBiometrics, language } = req.body;
+    const userLanguage = language || 'en';
 
     if (!messages || messages.length === 0) {
       return res.status(400).json({ message: 'Messages are required' });
@@ -199,7 +200,12 @@ router.post('/chat', async (req: Request, res: Response) => {
         // Format biometrics for AI analysis
         const biometricData = formatBiometrics(biometrics);
 
-        const greetingPrompt = `You are a caring, empathetic medical triage assistant. A patient has just entered biometric data before starting their consultation. Analyze their vital signs and provide a warm, reassuring greeting.
+        const greetingLangNote = userLanguage === 'fr'
+          ? ' Respond entirely in French.'
+          : userLanguage === 'ar'
+          ? ' Respond entirely in Moroccan Darija (الدارجة المغربية) using Arabic script.'
+          : '';
+        const greetingPrompt = `You are a caring, empathetic medical triage assistant. A patient has just entered biometric data before starting their consultation. Analyze their vital signs and provide a warm, reassuring greeting.${greetingLangNote}
 
 PATIENT BIOMETRICS:
 ${biometricData}
@@ -229,8 +235,13 @@ Do NOT diagnose or provide medical advice.`;
         });
       } else {
         // No biometrics available, return standard greeting
+        const greetings: Record<string, string> = {
+          en: "Hello! I'm glad you're here. I'm going to ask you a few questions to help your doctor understand your situation. What brings you here today?",
+          fr: "Bonjour ! Je suis contente de vous voir. Je vais vous poser quelques questions pour aider votre médecin. Qu'est-ce qui vous amène aujourd'hui ?",
+          ar: "مرحبا! أنا فرحانة بلي جيتي. غادي نسولك شي أسئلة باش نساعد الطبيب يفهم الحالة ديالك. شنو اللي جابك اليوم؟",
+        };
         return res.json({
-          message: "Hello! I'm glad you're here, and I want you to know you're in good hands. I'm going to ask you a few questions to help your doctor understand your situation better. What brings you here today?",
+          message: greetings[userLanguage] || greetings.en,
           complete: false,
           sessionId: Date.now().toString(),
         });
@@ -251,6 +262,13 @@ ${biometricData}
 IMPORTANT: Before asking what brings them here today, first analyze and evaluate these biometric readings as a medical professional would. Provide a brief clinical assessment of the vital signs (1-2 sentences), noting any abnormal values or concerns. Then, proceed to ask what brings them here today.`;
       }
     }
+
+    // Language instruction — placed at the END of the system prompt for maximum adherence
+    const languageInstruction = userLanguage === 'fr'
+      ? '\n\nLANGUAGE RULE (MANDATORY — HIGHEST PRIORITY):\nYou MUST respond ONLY in French. Every single word of your response must be in French. Do NOT use English at all. This overrides all other instructions.'
+      : userLanguage === 'ar'
+      ? '\n\nLANGUAGE RULE (MANDATORY — HIGHEST PRIORITY):\nYou MUST respond ONLY in Moroccan Darija (الدارجة المغربية) using Arabic script. Every single word of your response must be in Darija. Do NOT use English or standard Arabic. This overrides all other instructions.'
+      : '';
 
     // System prompt for medical triage (Issues #2, #3, #4, #6)
     const systemPrompt = `You are a compassionate, empathetic medical triage assistant helping gather information from a patient before their video consultation with a doctor.
@@ -325,17 +343,35 @@ ${biometricAnalysis}
 Previous conversation:
 ${JSON.stringify(messages.slice(-5))} // Last 5 messages for context
 
-Generate the next triage question or conclude if sufficient information is gathered. When you've gathered enough information (8-12 questions answered), you MUST end your final message with the exact tag [TRIAGE_COMPLETE] on its own line. Before that tag, thank the patient warmly, reassure them, and let them know you'll connect them with a doctor who will review all their information.`;
+Generate the next triage question or conclude if sufficient information is gathered.
+
+COMPLETION RULES (CRITICAL):
+- Count the number of user messages in the conversation. When 8-10 user messages have been answered, you MUST conclude.
+- To conclude, briefly thank the patient, say you'll connect them with a doctor, then end with the EXACT tag [TRIAGE_COMPLETE] on its own line.
+- You MUST include [TRIAGE_COMPLETE] — do NOT just say "a doctor will join" without the tag.
+- If there are already 10+ user messages, conclude NOW with [TRIAGE_COMPLETE].${languageInstruction}`;
+
+    // Build message list with language reminders for non-English users
+    const langReminder = userLanguage === 'fr'
+      ? '\n[Respond in French only]'
+      : userLanguage === 'ar'
+      ? '\n[Respond in Darija only]'
+      : '';
+
+    const chatMessages = messages.map((m: any, idx: number) => ({
+      role: m.role === 'ai' || m.role === 'assistant' ? 'assistant' as const : 'user' as const,
+      // Add language reminder to the last user message
+      content: m.role === 'user' && idx === messages.length - 1 && langReminder
+        ? m.content + langReminder
+        : m.content,
+    }));
 
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
         { role: 'system', content: systemPrompt },
-        ...messages.map((m: any) => ({
-          role: m.role === 'ai' || m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content,
-        })),
+        ...chatMessages,
       ],
       temperature: 0.7,
       max_tokens: 250,
@@ -352,11 +388,14 @@ Generate the next triage question or conclude if sufficient information is gathe
       responseUpper.includes('MEDICAL EMERGENCY');
 
     // Detect triage completion
-    const isComplete =
+    const userMessageCount = messages.filter((m: any) => m.role === 'user').length;
+    const tagDetected =
       responseUpper.includes('TRIAGE_COMPLETE') ||
       responseUpper.includes('END_TRIAGE') ||
       responseUpper.includes('[TRIAGE_COMPLETE]') ||
       responseUpper.includes('TRIAGE COMPLETE');
+    // Force completion if 10+ user messages even if AI forgot the tag
+    const isComplete = tagDetected || userMessageCount >= 10;
 
     // Clean the AI response - remove the completion tag from visible text
     let cleanResponse = aiResponse

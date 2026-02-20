@@ -108,6 +108,26 @@ describe('Auth API', () => {
       expect(response.body.user).toHaveProperty('email', testUser.email);
     });
 
+    it('should persist selected login language in profile', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testUser.email,
+          password: testUser.password,
+          userType: testUser.userType,
+          language: 'fr',
+        })
+        .expect(200);
+
+      expect(response.body.user.language).toBe('fr');
+
+      const profile = await request(app)
+        .get(`/api/auth/profile/${response.body.user.id}?userType=patient`)
+        .expect(200);
+
+      expect(profile.body.language).toBe('fr');
+    });
+
     it('should return 401 for incorrect password', async () => {
       const response = await request(app)
         .post('/api/auth/login')
@@ -132,6 +152,34 @@ describe('Auth API', () => {
         .expect(401);
 
       expect(response.body).toHaveProperty('message');
+    });
+  });
+
+  describe('Profile Language APIs', () => {
+    it('should update language preference via profile endpoint', async () => {
+      const email = `lang_${Date.now()}@example.com`;
+      const register = await request(app)
+        .post('/api/auth/register')
+        .send({
+          fullName: 'Language User',
+          email,
+          password: 'password123',
+          userType: 'doctor',
+        })
+        .expect(201);
+
+      const userId = register.body.user.id;
+
+      await request(app)
+        .put(`/api/auth/profile/${userId}/language`)
+        .send({ language: 'ar', userType: 'doctor' })
+        .expect(200);
+
+      const profile = await request(app)
+        .get(`/api/auth/profile/${userId}?userType=doctor`)
+        .expect(200);
+
+      expect(profile.body.language).toBe('ar');
     });
   });
 });
