@@ -128,6 +128,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [medAnswer, setMedAnswer] = useState('');
   const [medAnswerLoading, setMedAnswerLoading] = useState(false);
 
+  // Auto-transcription state
+  const [autoTranscribing, setAutoTranscribing] = useState(false);
+  const autoTranscribeRef = useRef(false);
+  const pendingTranscriptBuffer = useRef('');
+
   const callStartTime = useRef<number | null>(null);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const autoSaveInterval = useRef<NodeJS.Timeout | null>(null);
@@ -310,6 +315,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   useEffect(() => {
     if (!ExpoSpeechRecognitionModule || !sttAvailable) return;
 
+    const shouldRestart = () => isListening || autoTranscribeRef.current;
+
     const handleResult = (event: any) => {
       const transcript = event?.results?.[0]?.transcript || event?.value?.[0] || '';
       if (transcript.trim()) {
@@ -318,8 +325,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     };
 
     const handleEnd = () => {
-      // Restart if still in listening mode
-      if (isListening) {
+      // Restart if still in listening or auto-transcribe mode
+      if (shouldRestart()) {
         try {
           ExpoSpeechRecognitionModule.start({
             lang: doctorLanguage === 'ar' ? 'ar-MA' : doctorLanguage === 'fr' ? 'fr-FR' : 'en-US',
@@ -327,14 +334,14 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             continuous: true,
           });
         } catch {
-          setIsListening(false);
+          if (!autoTranscribeRef.current) setIsListening(false);
         }
       }
     };
 
     const handleError = () => {
       // Ignore errors and try to restart
-      if (isListening) {
+      if (shouldRestart()) {
         setTimeout(() => {
           try {
             ExpoSpeechRecognitionModule.start({
@@ -343,7 +350,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               continuous: true,
             });
           } catch {
-            setIsListening(false);
+            if (!autoTranscribeRef.current) setIsListening(false);
           }
         }, 1000);
       }
@@ -414,6 +421,40 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       }
     }
   };
+
+  // Auto-transcription: automatically start STT when call connects
+  const startAutoTranscribe = useCallback(async () => {
+    if (!ExpoSpeechRecognitionModule || !sttAvailable || autoTranscribeRef.current) return;
+
+    try {
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) return;
+
+      autoTranscribeRef.current = true;
+      setAutoTranscribing(true);
+
+      ExpoSpeechRecognitionModule.start({
+        lang: doctorLanguage === 'ar' ? 'ar-MA' : doctorLanguage === 'fr' ? 'fr-FR' : 'en-US',
+        interimResults: false,
+        continuous: true,
+      });
+    } catch {
+      autoTranscribeRef.current = false;
+      setAutoTranscribing(false);
+    }
+  }, [sttAvailable, doctorLanguage]);
+
+  const stopAutoTranscribe = useCallback(() => {
+    autoTranscribeRef.current = false;
+    setAutoTranscribing(false);
+    if (!isListening && ExpoSpeechRecognitionModule) {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch {
+        // Ignore
+      }
+    }
+  }, [isListening]);
 
   // Issue #64: Add medication to prescription list
   const addToPrescription = (med: { name: string; dosage?: string; rationale?: string }) => {
@@ -557,7 +598,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       if (notesRef.current.trim()) {
         saveNotes(notesRef.current);
       }
-      // Stop listening on unmount
+      // Stop listening and auto-transcription on unmount
+      autoTranscribeRef.current = false;
       if (ExpoSpeechRecognitionModule) {
         try { ExpoSpeechRecognitionModule.stop(); } catch {}
       }
@@ -666,6 +708,9 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         setCallDuration(duration);
       }
     }, 1000);
+
+    // Auto-start transcription when call connects
+    startAutoTranscribe();
   };
 
   const formatDuration = (seconds: number): string => {
@@ -711,6 +756,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               await api.endVideoCall(roomName);
               // Cleanup live transcript
               stopListening();
+              stopAutoTranscribe();
               api.clearLiveTranscript(roomName).catch(() => {});
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
@@ -844,14 +890,31 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
             <View style={styles.assistSection}>
               {/* Live transcript indicator + STT controls */}
               <View style={styles.sttControls}>
-                {sttAvailable && (
+                {sttAvailable ? (
                   <TouchableOpacity
-                    style={[styles.sttButton, isListening && styles.sttButtonActive]}
-                    onPress={isListening ? stopListening : startListening}
+                    style={[styles.sttButton, (autoTranscribing || isListening) && styles.sttButtonActive]}
+                    onPress={autoTranscribing ? stopAutoTranscribe : isListening ? stopListening : startAutoTranscribe}
                   >
-                    <MaterialCommunityIcons name={isListening ? 'stop' : 'microphone'} size={14} color={isListening ? '#FFFFFF' : theme.colors.primary} />
-                    <Text style={[styles.sttButtonText, isListening && { color: '#FFFFFF' }]}>{isListening ? 'Stop' : 'Transcribe'}</Text>
+                    <MaterialCommunityIcons name={(autoTranscribing || isListening) ? 'stop' : 'microphone'} size={14} color={(autoTranscribing || isListening) ? '#FFFFFF' : theme.colors.primary} />
+                    <Text style={[styles.sttButtonText, (autoTranscribing || isListening) && { color: '#FFFFFF' }]}>
+                      {autoTranscribing ? 'Auto-transcribing' : isListening ? 'Stop' : 'Auto-transcribe'}
+                    </Text>
                   </TouchableOpacity>
+                ) : (
+                  <View style={styles.manualEntryRow}>
+                    <TextInput
+                      style={styles.manualEntryInput}
+                      placeholder="Type what patient says..."
+                      placeholderTextColor={theme.colors.onSurfaceVariant}
+                      value={manualTranscriptInput}
+                      onChangeText={setManualTranscriptInput}
+                      onSubmitEditing={handleManualTranscriptEntry}
+                      returnKeyType="send"
+                    />
+                    <TouchableOpacity onPress={handleManualTranscriptEntry} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <MaterialCommunityIcons name="send" size={16} color={manualTranscriptInput.trim() ? theme.colors.primary : theme.colors.onSurfaceVariant} />
+                    </TouchableOpacity>
+                  </View>
                 )}
                 {liveTranscriptEntries.length > 0 && (
                   <View style={styles.liveTranscriptIndicator}>
@@ -859,7 +922,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                     <Text style={styles.liveTranscriptIndicatorText}>
                       {liveTranscriptEntries.length} entries
                     </Text>
-                    {isListening && <View style={styles.listeningDot} />}
+                    {(autoTranscribing || isListening) && <View style={styles.listeningDot} />}
                   </View>
                 )}
               </View>
@@ -889,6 +952,69 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                   <Text style={styles.assistCardLabel}>Suggested Questions</Text>
                   {liveAssistData.suggestedQuestions.map((item: string, index: number) => (
                     <Text key={`question-${index}`} style={styles.findingText}>{'\u2022'} {item}</Text>
+                  ))}
+                </View>
+              )}
+
+              {/* Possible Diagnostics */}
+              {(liveAssistData?.possibleDiagnostics || []).length > 0 && (
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Possible Diagnostics</Text>
+                  {liveAssistData.possibleDiagnostics.map((diag: any, index: number) => (
+                    <View key={`diag-${index}`} style={styles.liveDiagnosticItem}>
+                      <View style={styles.diagnosticItemHeader}>
+                        <Text style={styles.conditionName}>{diag.name}</Text>
+                        <Chip
+                          mode="flat"
+                          style={[
+                            styles.confidenceChip,
+                            {
+                              backgroundColor:
+                                diag.confidence === 'High'
+                                  ? `${theme.colors.error}15`
+                                  : diag.confidence === 'Medium'
+                                  ? `${theme.colors.warning}15`
+                                  : `${theme.colors.success}15`,
+                            },
+                          ]}
+                          textStyle={[
+                            styles.confidenceText,
+                            {
+                              color:
+                                diag.confidence === 'High'
+                                  ? theme.colors.error
+                                  : diag.confidence === 'Medium'
+                                  ? theme.colors.warning
+                                  : theme.colors.success,
+                            },
+                          ]}
+                        >
+                          {diag.confidence}
+                        </Chip>
+                      </View>
+                      {diag.description && (
+                        <Text style={styles.conditionDesc}>{diag.description}</Text>
+                      )}
+                      <View style={styles.medActions}>
+                        <TouchableOpacity style={styles.medActionButton} onPress={() => addDiagnostic(diag.name)}>
+                          <MaterialCommunityIcons name="clipboard-check" size={13} color={theme.colors.primary} />
+                          <Text style={styles.medActionText}>Use as Dx</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
+                          onPress={() => {
+                            setDoctorNotes((prev) => {
+                              const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
+                              return prev ? `${prev}\n${line}` : line;
+                            });
+                            Alert.alert('Added to Notes', `${diag.name} added to consultation notes as a possible cause.`);
+                          }}
+                        >
+                          <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
+                          <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Add to Notes</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   ))}
                 </View>
               )}
@@ -1711,6 +1837,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.onSurfaceVariant,
     lineHeight: 16,
+  },
+  liveDiagnosticItem: {
+    paddingVertical: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.outline,
+  },
+  diagnosticItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
   },
   liveMedicationItem: {
     paddingVertical: spacing.xs,

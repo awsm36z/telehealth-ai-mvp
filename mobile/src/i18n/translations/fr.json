@@ -135,7 +135,9 @@
     "backToWaitingRoom": "Retour à la salle d'attente",
     "continueToWaitingRoom": "Continuer vers la salle d'attente",
     "startConsultation": "Démarrer la consultation vidéo",
-    "saveForLater": "Enregistrer pour plus tard"
+    "saveForLater": "Enregistrer pour plus tard",
+    "savedTitle": "Analyses enregistrées",
+    "savedMessage": "Vos analyses de santé ont été enregistrées. Vous pourrez les consulter plus tard depuis l'écran d'accueil."
   },
   "biometrics": {
     "title": "Enregistrer vos biométriques",

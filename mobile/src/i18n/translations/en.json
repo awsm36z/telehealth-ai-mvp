@@ -135,7 +135,9 @@
     "backToWaitingRoom": "Back to Waiting Room",
     "continueToWaitingRoom": "Continue to Waiting Room",
     "startConsultation": "Start Video Consultation",
-    "saveForLater": "Save for Later"
+    "saveForLater": "Save for Later",
+    "savedTitle": "Insights Saved",
+    "savedMessage": "Your health insights have been saved. You can review them later from the home screen."
   },
   "biometrics": {
     "title": "Log Your Biometrics",

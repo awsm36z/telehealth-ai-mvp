@@ -120,6 +120,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
         liveSummary: 'Conversation in progress.',
         insights: ['Continue focused history and symptom clarification.'],
         suggestedQuestions: ['Any red-flag symptoms since onset?', 'Any current medications or allergies?'],
+        possibleDiagnostics: [],
         possibleMedication: fallbackMedication,
         medicationDisclaimer: MEDICATION_DISCLAIMER,
         provenance: 'Rule-based fallback (AI unavailable)',
@@ -136,8 +137,9 @@ router.post('/analyze', async (req: Request, res: Response) => {
         {
           role: 'system',
           content:
-            `You are a real-time clinical assistant for doctors. Analyze ongoing conversation and return strict JSON with keys: liveSummary, insights, suggestedQuestions, possibleMedication, provenance, confidence, warning. ${patientContext} ` +
-            `possibleMedication should be an array of {name, rationale, confidence, market}. Never prescribe. Keep uncertainty explicit. ` +
+            `You are a real-time clinical assistant for doctors. Analyze ongoing conversation and return strict JSON with keys: liveSummary, insights, suggestedQuestions, possibleDiagnostics, possibleMedication, provenance, confidence, warning. ${patientContext} ` +
+            `possibleDiagnostics should be an array of {name, description, confidence} where confidence is "High", "Medium", or "Low". These are possible diagnoses the doctor may consider based on the conversation so far. ` +
+            `possibleMedication should be an array of {name, rationale, confidence, market}. Never prescribe. Never diagnose. Keep uncertainty explicit. ` +
             (isMorocco
               ? `When suggesting medication, prioritize products present in Morocco such as ${MOROCCO_MEDICATIONS.join(', ')}.`
               : ''),
@@ -145,7 +147,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
         { role: 'user', content: `Analyze this ongoing conversation:\n\n${conversationText}` },
       ],
       temperature: 0.3,
-      max_tokens: 500,
+      max_tokens: 600,
     });
     const raw = completion.choices[0].message.content || '{}';
     let parsed: any;
@@ -158,6 +160,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
     const liveSummary = parsed.liveSummary || 'Live summary unavailable.';
     const insights = Array.isArray(parsed.insights) ? parsed.insights : [];
     const suggestedQuestions = Array.isArray(parsed.suggestedQuestions) ? parsed.suggestedQuestions : [];
+    const possibleDiagnostics = Array.isArray(parsed.possibleDiagnostics) ? parsed.possibleDiagnostics : [];
     const possibleMedication = Array.isArray(parsed.possibleMedication)
       ? parsed.possibleMedication
       : isMorocco
@@ -173,6 +176,11 @@ router.post('/analyze', async (req: Request, res: Response) => {
       `LIVE SUMMARY: ${liveSummary}`,
       insights.length ? `INSIGHTS:\n- ${insights.join('\n- ')}` : null,
       suggestedQuestions.length ? `SUGGESTED QUESTIONS:\n- ${suggestedQuestions.join('\n- ')}` : null,
+      possibleDiagnostics.length
+        ? `POSSIBLE DIAGNOSTICS:\n- ${possibleDiagnostics
+            .map((d: any) => `${d.name} [${d.confidence}] — ${d.description || ''}`)
+            .join('\n- ')}`
+        : null,
       possibleMedication.length
         ? `POSSIBLE MEDICATION:\n- ${possibleMedication
             .map((m: any) => `${m.name} (${m.rationale || 'validate clinical fit'})`)
@@ -190,6 +198,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
       liveSummary,
       insights,
       suggestedQuestions,
+      possibleDiagnostics,
       possibleMedication,
       medicationDisclaimer: MEDICATION_DISCLAIMER,
       provenance: parsed.provenance || 'OpenAI model synthesis',

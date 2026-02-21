@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, Button, Surface, Chip, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme, spacing, shadows } from '../../theme';
 
 export default function InsightsScreen({ route, navigation }: any) {
@@ -169,7 +170,25 @@ export default function InsightsScreen({ route, navigation }: any) {
           {!fromWaitingRoom && (
             <Button
               mode="outlined"
-              onPress={() => navigation.navigate('Home')}
+              onPress={async () => {
+                try {
+                  const patientId = await AsyncStorage.getItem('userId');
+                  const savedInsights = {
+                    ...data,
+                    triageData: route.params?.triageData,
+                    savedAt: new Date().toISOString(),
+                    patientId,
+                  };
+                  await AsyncStorage.setItem('savedInsights', JSON.stringify(savedInsights));
+                  Alert.alert(
+                    t('insights.savedTitle'),
+                    t('insights.savedMessage'),
+                    [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
+                  );
+                } catch {
+                  navigation.navigate('Home');
+                }
+              }}
               style={styles.secondaryButton}
               contentStyle={styles.buttonContent}
             >

@@ -135,7 +135,9 @@
     "backToWaitingRoom": "رجع لقاعة الانتظار",
     "continueToWaitingRoom": "كمل لقاعة الانتظار",
     "startConsultation": "بدا الاستشارة بالفيديو",
-    "saveForLater": "حفظ لوقت آخر"
+    "saveForLater": "حفظ لوقت آخر",
+    "savedTitle": "التحاليل تحفظات",
+    "savedMessage": "التحاليل الصحية ديالك تحفظات. يمكنك تشوفهم من بعد من الشاشة الرئيسية."
   },
   "biometrics": {
     "title": "سجل البيومتريك ديالك",
