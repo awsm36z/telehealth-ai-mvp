@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, Alert, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, StyleSheet, Alert, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Platform, Modal } from 'react-native';
 import { Text, IconButton, Surface, Button, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -122,11 +122,30 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [manualTranscriptInput, setManualTranscriptInput] = useState('');
   const [sttAvailable, setSttAvailable] = useState(false);
   const liveTranscriptScrollRef = useRef<ScrollView>(null);
-  const [liveAssistData, setLiveAssistData] = useState<any>(null);
+  // Seed live assist with triage insights' possible conditions as initial diagnostics
+  const [liveAssistData, setLiveAssistData] = useState<any>(() => {
+    if (insights?.possibleConditions?.length) {
+      return {
+        possibleDiagnostics: insights.possibleConditions.map((c: any) => ({
+          name: c.name,
+          description: c.description || '',
+          confidence: c.confidence || 'Medium',
+        })),
+      };
+    }
+    return null;
+  });
   const [liveAssistLoading, setLiveAssistLoading] = useState(false);
   const [medQuestion, setMedQuestion] = useState('');
   const [medAnswer, setMedAnswer] = useState('');
   const [medAnswerLoading, setMedAnswerLoading] = useState(false);
+
+  // Prescription modal state
+  const [rxModalVisible, setRxModalVisible] = useState(false);
+  const [rxModalMed, setRxModalMed] = useState<{ name: string; dosage?: string; rationale?: string } | null>(null);
+  const [rxDose, setRxDose] = useState('');
+  const [rxNotes, setRxNotes] = useState('');
+  const [rxDoseLoading, setRxDoseLoading] = useState(false);
 
   // Auto-transcription state
   const [autoTranscribing, setAutoTranscribing] = useState(false);
@@ -456,19 +475,84 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     }
   }, [isListening]);
 
-  // Issue #64: Add medication to prescription list
-  const addToPrescription = (med: { name: string; dosage?: string; rationale?: string }) => {
-    if (prescriptions.some((p) => p.name === med.name)) {
-      Alert.alert('Already Added', `${med.name} is already in the prescription list.`);
-      return;
+  // Open prescription modal with AI-recommended dose
+  const openPrescriptionModal = async (med: { name: string; dosage?: string; rationale?: string }) => {
+    setRxModalMed(med);
+    setRxDose(med.dosage || '');
+    setRxNotes('');
+    setRxModalVisible(true);
+
+    // Auto-fetch AI recommended dose if not already provided
+    if (!med.dosage) {
+      setRxDoseLoading(true);
+      try {
+        const locale = patientLanguage === 'ar' ? 'MA' : undefined;
+        const response = await api.askMedicationAI({
+          patientId,
+          locale,
+          question: `What is the recommended dosage and frequency for ${med.name} for this patient? Give a concise answer like "500mg twice daily for 7 days".`,
+        });
+        const suggestedDose = response.data?.answer || '';
+        // Extract just the dose line (first line or sentence)
+        const doseLine = suggestedDose.split('\n')[0].replace(/^[\s\-•]+/, '').trim();
+        if (doseLine && doseLine.length < 100) {
+          setRxDose(doseLine);
+        }
+      } catch {
+        // Non-critical
+      }
+      setRxDoseLoading(false);
     }
-    setPrescriptions((prev) => [...prev, med]);
-    // Also add to the report prescriptions text
+  };
+
+  const confirmPrescription = () => {
+    if (!rxModalMed) return;
+    const med = rxModalMed;
+    const dose = rxDose.trim();
+    const notes = rxNotes.trim();
+
+    // Check if already prescribed
+    const existingIndex = prescriptions.findIndex((p) => p.name === med.name);
+
+    if (existingIndex >= 0) {
+      // Update existing prescription
+      setPrescriptions((prev) => {
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], dosage: dose, rationale: med.rationale };
+        return updated;
+      });
+    } else {
+      setPrescriptions((prev) => [...prev, { name: med.name, dosage: dose, rationale: med.rationale }]);
+    }
+
+    // Update report prescriptions
     setReportPrescriptions((prev) => {
-      const line = `${med.name}${med.dosage ? ` - ${med.dosage}` : ''}`;
-      return prev ? `${prev}\n${line}` : line;
+      const line = `${med.name}${dose ? ` - ${dose}` : ''}`;
+      // If drug already in report, replace it
+      const lines = prev.split('\n').filter((l) => !l.startsWith(med.name));
+      lines.push(line);
+      return lines.filter(Boolean).join('\n');
     });
-    Alert.alert('Added to Prescription', `${med.name} added to prescription list.`);
+
+    // Add/update in doctor notes with formatted prescription info
+    setDoctorNotes((prev) => {
+      const rxLine = `Rx: ${med.name}` +
+        (dose ? ` | Dose: ${dose}` : '') +
+        (med.rationale ? ` | For: ${med.rationale}` : '') +
+        (notes ? ` | Notes: ${notes}` : '');
+
+      // If drug already in notes, replace that line
+      const noteLines = prev.split('\n');
+      const existingRxIndex = noteLines.findIndex((l) => l.startsWith(`Rx: ${med.name}`));
+      if (existingRxIndex >= 0) {
+        noteLines[existingRxIndex] = rxLine;
+        return noteLines.join('\n');
+      }
+      return prev ? `${prev}\n${rxLine}` : rxLine;
+    });
+
+    setRxModalVisible(false);
+    setRxModalMed(null);
   };
 
   // Issue #64: Look up drug facts
@@ -1028,7 +1112,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
                       <Text style={styles.conditionDesc}>{item.rationale || 'Validate indication/contraindications.'}</Text>
                       <View style={styles.medActions}>
-                        <TouchableOpacity style={styles.medActionButton} onPress={() => addToPrescription({ name: item.name, dosage: item.dosage, rationale: item.rationale })}>
+                        <TouchableOpacity style={styles.medActionButton} onPress={() => openPrescriptionModal({ name: item.name, dosage: item.dosage, rationale: item.rationale })}>
                           <MaterialCommunityIcons name="plus-circle" size={13} color={theme.colors.primary} />
                           <Text style={styles.medActionText}>Add to Rx</Text>
                         </TouchableOpacity>
@@ -1558,6 +1642,63 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       )}
 
       {/* Live Transcript panel is now integrated into the AI Assist tab */}
+
+      {/* Prescription Modal */}
+      <Modal visible={rxModalVisible} transparent animationType="fade" onRequestClose={() => setRxModalVisible(false)}>
+        <View style={styles.rxModalOverlay}>
+          <View style={styles.rxModalContainer}>
+            <View style={styles.rxModalHeader}>
+              <MaterialCommunityIcons name="pill" size={22} color={theme.colors.primary} />
+              <Text style={styles.rxModalTitle}>Add to Prescription</Text>
+              <TouchableOpacity onPress={() => setRxModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="close" size={20} color={theme.colors.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.rxModalDrugName}>{rxModalMed?.name}</Text>
+            {rxModalMed?.rationale && (
+              <Text style={styles.rxModalRationale}>{rxModalMed.rationale}</Text>
+            )}
+
+            <Text style={styles.rxModalLabel}>Dose & Frequency</Text>
+            {rxDoseLoading ? (
+              <View style={styles.rxDoseLoading}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={styles.rxDoseLoadingText}>Getting AI recommendation...</Text>
+              </View>
+            ) : (
+              <TextInput
+                style={styles.rxModalInput}
+                value={rxDose}
+                onChangeText={setRxDose}
+                placeholder="e.g., 500mg twice daily for 7 days"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+              />
+            )}
+
+            <Text style={styles.rxModalLabel}>Additional Notes</Text>
+            <TextInput
+              style={[styles.rxModalInput, styles.rxModalTextarea]}
+              value={rxNotes}
+              onChangeText={setRxNotes}
+              placeholder="Any additional instructions..."
+              placeholderTextColor={theme.colors.onSurfaceVariant}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <Button
+              mode="contained"
+              icon="clipboard-check"
+              onPress={confirmPrescription}
+              style={styles.rxModalButton}
+              disabled={rxDoseLoading}
+            >
+              Add to Prescription
+            </Button>
+          </View>
+        </View>
+      </Modal>
 
       {/* Floating call controls plane */}
       {showFloatingControls && (
@@ -2472,5 +2613,80 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: theme.colors.primary,
+  },
+  rxModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  rxModalContainer: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: spacing.lg,
+  },
+  rxModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  rxModalTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+  },
+  rxModalDrugName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.primary,
+    marginBottom: spacing.xs,
+  },
+  rxModalRationale: {
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  rxModalLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  rxModalInput: {
+    fontSize: 14,
+    color: theme.colors.onSurface,
+    padding: spacing.md,
+    backgroundColor: '#F5F5F5',
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  rxModalTextarea: {
+    minHeight: 70,
+    maxHeight: 100,
+  },
+  rxDoseLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    backgroundColor: '#F5F5F5',
+    borderRadius: theme.roundness,
+  },
+  rxDoseLoadingText: {
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
+  },
+  rxModalButton: {
+    marginTop: spacing.lg,
+    borderRadius: theme.roundness,
   },
 });

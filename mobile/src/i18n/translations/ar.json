@@ -80,7 +80,12 @@
     "viewAll": "شوف الكل",
     "noConsultations": "ما كاينة تا استشارة",
     "startFirstConsultation": "بدا استشارة باش يشخصوك الذكاء الاصطناعي والأطباء ديالنا",
-    "newConsultation": "استشارة جديدة"
+    "newConsultation": "استشارة جديدة",
+    "activeConsultations": "الاستشارات النشطة",
+    "triageInsightsReady": "تحاليل الذكاء الاصطناعي جاهزة",
+    "savedOn": "تحفظات ف {{date}}",
+    "viewInsights": "شوف التحاليل",
+    "consultDoctor": "استشر طبيب"
   },
   "triage": {
     "title": "فرز صحي بالذكاء الاصطناعي",

@@ -80,7 +80,12 @@
     "viewAll": "View All",
     "noConsultations": "No Consultations Yet",
     "startFirstConsultation": "Start a consultation to get diagnosed by our AI and doctors",
-    "newConsultation": "New Consultation"
+    "newConsultation": "New Consultation",
+    "activeConsultations": "Active Consultations",
+    "triageInsightsReady": "AI Triage Insights Ready",
+    "savedOn": "Saved on {{date}}",
+    "viewInsights": "View Insights",
+    "consultDoctor": "Consult Doctor"
   },
   "triage": {
     "title": "AI Health Triage",

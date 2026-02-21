@@ -38,6 +38,27 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
     setBiometrics({ ...biometrics, [field]: value });
   };
 
+  const fillTestData = () => {
+    // Simulate a patient with high fever and high blood pressure
+    setBiometrics({
+      bloodPressureSystolic: '165',
+      bloodPressureDiastolic: '105',
+      heartRate: '98',
+      temperature: '103.2',
+      temperatureUnit: 'F',
+      weight: '175',
+      weightUnit: 'lbs',
+      height: '170',
+      heightUnit: 'cm',
+      respiratoryRate: '22',
+      painLevel: '7',
+      bloodOxygen: '94',
+      bloodSugar: '145',
+      bloodSugarContext: 'random',
+    });
+    setNotes('Patient reports severe headache and body aches for 2 days. History of hypertension.');
+  };
+
   const prefillStableBiometrics = async () => {
     try {
       const patientId = await AsyncStorage.getItem('userId');
@@ -187,6 +208,16 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          <Button
+            mode="outlined"
+            icon="test-tube"
+            onPress={fillTestData}
+            style={styles.testDataButton}
+            compact
+          >
+            Fill with test data
+          </Button>
+
           {/* Blood Pressure */}
           <BiometricSection
             icon="heart-pulse"
@@ -603,6 +634,11 @@ const styles = StyleSheet.create({
   buttonLabel: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  testDataButton: {
+    marginBottom: spacing.md,
+    borderColor: theme.colors.onSurfaceVariant,
+    borderStyle: 'dashed' as any,
   },
   painLevelContainer: {
     gap: spacing.md,

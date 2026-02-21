@@ -152,7 +152,24 @@ export default function TriageChatScreen({ navigation, route }: any) {
     };
 
     const handleEnd = () => {
-      setIsListening(false);
+      // When speech recognition ends naturally (user stops talking),
+      // process any accumulated transcript that wasn't sent via isFinal
+      setIsListening((wasListening) => {
+        if (wasListening) {
+          setTranscript((currentTranscript) => {
+            if (currentTranscript.trim()) {
+              setIsTranscribing(true);
+              setTimeout(() => {
+                handleVoiceResult(currentTranscript);
+                setIsTranscribing(false);
+                setTranscript('');
+              }, 500);
+            }
+            return currentTranscript;
+          });
+        }
+        return false;
+      });
     };
 
     const handleError = (event: any) => {

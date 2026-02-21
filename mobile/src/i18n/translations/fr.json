@@ -80,7 +80,12 @@
     "viewAll": "Tout voir",
     "noConsultations": "Aucune consultation",
     "startFirstConsultation": "Commencez une consultation pour être diagnostiqué par notre IA et nos médecins",
-    "newConsultation": "Nouvelle consultation"
+    "newConsultation": "Nouvelle consultation",
+    "activeConsultations": "Consultations actives",
+    "triageInsightsReady": "Analyses IA prêtes",
+    "savedOn": "Enregistré le {{date}}",
+    "viewInsights": "Voir les analyses",
+    "consultDoctor": "Consulter un médecin"
   },
   "triage": {
     "title": "Triage de santé IA",

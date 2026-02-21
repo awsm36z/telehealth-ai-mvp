@@ -121,6 +121,33 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
     return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
   };
 
+  const fillTestData = () => {
+    const randomNum = Math.floor(Math.random() * 9000) + 1000;
+    if (userType === 'doctor') {
+      setFormData({
+        fullName: `testdoctor${randomNum}`,
+        email: `testdoctor${randomNum}@g.com`,
+        password: 'password123',
+        confirmPassword: 'password123',
+        phone: '(555) 123-4567',
+        dateOfBirth: '',
+        licenseNumber: `MD${randomNum}`,
+      });
+    } else {
+      setFormData({
+        fullName: `testpatient${randomNum}`,
+        email: `testpatient${randomNum}@g.com`,
+        password: 'password123',
+        confirmPassword: 'password123',
+        phone: '(555) 987-6543',
+        dateOfBirth: '01/15/1990',
+        licenseNumber: '',
+      });
+    }
+    setAgreedToTerms(true);
+    setErrors({});
+  };
+
   const updateField = (field: string, value: string) => {
     let formattedValue = value;
     if (field === 'phone') {
@@ -164,6 +191,16 @@ export default function RegisterScreen({ navigation, onRegister }: any) {
                 ]}
               />
             </View>
+
+            <Button
+              mode="outlined"
+              icon="test-tube"
+              onPress={fillTestData}
+              style={styles.testDataButton}
+              compact
+            >
+              Fill with test data
+            </Button>
 
             <TextInput
               label={t('auth.fullName')}
@@ -434,5 +471,10 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: spacing.sm,
+  },
+  testDataButton: {
+    marginBottom: spacing.md,
+    borderColor: theme.colors.onSurfaceVariant,
+    borderStyle: 'dashed' as any,
   },
 });

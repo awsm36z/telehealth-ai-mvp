@@ -21,6 +21,7 @@ export default function PatientHomeScreen() {
   const [biometrics, setBiometrics] = useState<any>(null);
   const [recentCompletedTriage, setRecentCompletedTriage] = useState<any>(null);
   const [activeConsultation, setActiveConsultation] = useState<any>(null);
+  const [savedInsightsData, setSavedInsightsData] = useState<any>(null);
   const [recentConsultations, setRecentConsultations] = useState<any[]>([]);
 
   useEffect(() => {
@@ -32,8 +33,36 @@ export default function PatientHomeScreen() {
       loadBiometrics();
       refreshConsultationResumeState();
       loadRecentConsultations();
+      loadSavedInsights();
     }, [])
   );
+
+  const loadSavedInsights = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('savedInsights');
+      if (saved) {
+        setSavedInsightsData(JSON.parse(saved));
+      } else {
+        setSavedInsightsData(null);
+      }
+    } catch {
+      setSavedInsightsData(null);
+    }
+  };
+
+  const handleResumeSavedInsights = () => {
+    if (!savedInsightsData) return;
+    (navigation as any).navigate('InsightsScreen', {
+      insights: savedInsightsData,
+      triageData: savedInsightsData.triageData,
+      fromTriageComplete: true,
+    });
+  };
+
+  const handleDismissSavedInsights = async () => {
+    await AsyncStorage.removeItem('savedInsights');
+    setSavedInsightsData(null);
+  };
 
   const loadRecentConsultations = async () => {
     try {
@@ -290,6 +319,61 @@ export default function PatientHomeScreen() {
             </Button>
           )}
         </View>
+
+        {/* Saved Insights / Active Consultations */}
+        {savedInsightsData && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t('home.activeConsultations')}</Text>
+            <Card style={[styles.savedInsightsCard, shadows.medium]}>
+              <Card.Content>
+                <View style={styles.savedInsightsHeader}>
+                  <View style={[styles.savedInsightsIcon, { backgroundColor: `${theme.colors.primary}15` }]}>
+                    <MaterialCommunityIcons name="brain" size={24} color={theme.colors.primary} />
+                  </View>
+                  <View style={styles.savedInsightsInfo}>
+                    <Text style={styles.savedInsightsTitle}>{t('home.triageInsightsReady')}</Text>
+                    <Text style={styles.savedInsightsDate}>
+                      {t('home.savedOn', { date: new Date(savedInsightsData.savedAt).toLocaleDateString() })}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={handleDismissSavedInsights} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <MaterialCommunityIcons name="close" size={18} color={theme.colors.onSurfaceVariant} />
+                  </TouchableOpacity>
+                </View>
+                {savedInsightsData.summary && (
+                  <Text style={styles.savedInsightsSummary} numberOfLines={2}>
+                    {savedInsightsData.summary}
+                  </Text>
+                )}
+                <View style={styles.savedInsightsActions}>
+                  <Button
+                    mode="contained"
+                    icon="eye"
+                    onPress={handleResumeSavedInsights}
+                    style={styles.savedInsightsButton}
+                    compact
+                  >
+                    {t('home.viewInsights')}
+                  </Button>
+                  <Button
+                    mode="outlined"
+                    icon="video"
+                    onPress={() => {
+                      (navigation as any).navigate('WaitingRoom', {
+                        triageData: savedInsightsData.triageData,
+                        insights: savedInsightsData,
+                      });
+                    }}
+                    style={styles.savedInsightsButton}
+                    compact
+                  >
+                    {t('home.consultDoctor')}
+                  </Button>
+                </View>
+              </Card.Content>
+            </Card>
+          </View>
+        )}
 
         {/* Health Status Cards */}
         <View style={styles.section}>
@@ -744,5 +828,50 @@ const styles = StyleSheet.create({
   },
   emptyActionButton: {
     marginTop: spacing.md,
+  },
+  savedInsightsCard: {
+    backgroundColor: theme.colors.surface,
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.primary,
+  },
+  savedInsightsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  savedInsightsIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  savedInsightsInfo: {
+    flex: 1,
+  },
+  savedInsightsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  savedInsightsDate: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  savedInsightsSummary: {
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  savedInsightsActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  savedInsightsButton: {
+    flex: 1,
+    borderRadius: theme.roundness,
   },
 });
