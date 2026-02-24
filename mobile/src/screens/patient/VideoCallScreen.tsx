@@ -103,6 +103,8 @@ export default function VideoCallScreen({ route, navigation }: any) {
               if (timerInterval.current) {
                 clearInterval(timerInterval.current);
               }
+              // Clear saved insights so Active Consultations card is removed
+              await AsyncStorage.removeItem('savedInsights').catch(() => {});
               navigation.navigate('PatientHome');
             }
           },

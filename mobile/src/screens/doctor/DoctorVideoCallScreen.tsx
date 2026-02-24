@@ -456,7 +456,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     }
   }, [isListening]);
 
-  // Issue #64: Add medication to prescription list
+  // Add medication to prescription list and update doctor notes
   const addToPrescription = (med: { name: string; dosage?: string; rationale?: string }) => {
     if (prescriptions.some((p) => p.name === med.name)) {
       Alert.alert('Already Added', `${med.name} is already in the prescription list.`);
@@ -468,7 +468,14 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       const line = `${med.name}${med.dosage ? ` - ${med.dosage}` : ''}`;
       return prev ? `${prev}\n${line}` : line;
     });
-    Alert.alert('Added to Prescription', `${med.name} added to prescription list.`);
+    // Add prescription to doctor notes using ref for latest value
+    const currentNotes = notesRef.current;
+    const rxLine = `Rx: ${med.name}` +
+      (med.dosage ? ` | Dose: ${med.dosage}` : '') +
+      (med.rationale ? ` | For: ${med.rationale}` : '');
+    const updatedNotes = currentNotes ? `${currentNotes}\n${rxLine}` : rxLine;
+    setDoctorNotes(updatedNotes);
+    Alert.alert('Added to Prescription', `${med.name} added to prescription list and notes.`);
   };
 
   // Issue #64: Look up drug facts
@@ -491,18 +498,18 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     setMedAnswerLoading(false);
   };
 
-  // Issue #65: Add condition to doctor notes as diagnostic
+  // Add condition to doctor notes as diagnostic
   const addDiagnostic = (conditionName: string) => {
     if (diagnostics.includes(conditionName)) {
       Alert.alert('Already Added', `${conditionName} is already in diagnostics.`);
       return;
     }
     setDiagnostics((prev) => [...prev, conditionName]);
-    // Add to doctor notes
-    setDoctorNotes((prev) => {
-      const line = `Dx: ${conditionName}`;
-      return prev ? `${prev}\n${line}` : line;
-    });
+    // Add to doctor notes using ref for latest value
+    const currentNotes = notesRef.current;
+    const line = `Dx: ${conditionName}`;
+    const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
+    setDoctorNotes(updatedNotes);
     Alert.alert('Added to Notes', `${conditionName} added as a diagnostic to your notes.`);
   };
 
@@ -547,9 +554,29 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         api.getMedicationInsights({ patientId, locale, conversationSummary }),
       ]);
 
-      setLiveAssistData({
-        ...(liveResponse.data || {}),
-        medication: medResponse.data || null,
+      const liveData = liveResponse.data || {};
+
+      // Merge possibleDiagnostics: use API response if available, otherwise preserve
+      // seeded triage diagnostics so they aren't lost on refresh
+      setLiveAssistData((prev: any) => {
+        const apiDiagnostics = Array.isArray(liveData.possibleDiagnostics) && liveData.possibleDiagnostics.length > 0
+          ? liveData.possibleDiagnostics
+          : null;
+        const prevDiagnostics = prev?.possibleDiagnostics || [];
+
+        // If API returned diagnostics, merge with any existing ones (dedup by name)
+        let mergedDiagnostics = prevDiagnostics;
+        if (apiDiagnostics) {
+          const existingNames = new Set(apiDiagnostics.map((d: any) => d.name));
+          const uniquePrev = prevDiagnostics.filter((d: any) => !existingNames.has(d.name));
+          mergedDiagnostics = [...apiDiagnostics, ...uniquePrev];
+        }
+
+        return {
+          ...liveData,
+          possibleDiagnostics: mergedDiagnostics,
+          medication: medResponse.data || null,
+        };
       });
     } catch (error) {
       console.error('Failed to refresh live assist:', error);
@@ -1003,10 +1030,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         <TouchableOpacity
                           style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
                           onPress={() => {
-                            setDoctorNotes((prev) => {
-                              const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
-                              return prev ? `${prev}\n${line}` : line;
-                            });
+                            const currentNotes = notesRef.current;
+                            const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
+                            const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
+                            setDoctorNotes(updatedNotes);
                             Alert.alert('Added to Notes', `${diag.name} added to consultation notes as a possible cause.`);
                           }}
                         >

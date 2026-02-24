@@ -68,9 +68,11 @@ export default function TriageChatScreen({ navigation, route }: any) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const transcriptRef = useRef('');
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
   const [sttAvailable, setSttAvailable] = useState(false);
   const currentSoundRef = useRef<Audio.Sound | null>(null);
+  const handleVoiceResultRef = useRef<(text: string) => void>(() => {});
 
   // Realtime voice state
   const [isRealtimeActive, setIsRealtimeActive] = useState(false);
@@ -140,19 +142,33 @@ export default function TriageChatScreen({ navigation, route }: any) {
     const handleResult = (event: any) => {
       const text = event?.results?.[0]?.transcript || '';
       setTranscript(text);
+      transcriptRef.current = text;
       if (event?.isFinal && text.trim()) {
         setIsListening(false);
         setIsTranscribing(true);
         setTimeout(() => {
-          handleVoiceResult(text);
+          handleVoiceResultRef.current(text);
           setIsTranscribing(false);
           setTranscript('');
+          transcriptRef.current = '';
         }, 500);
       }
     };
 
     const handleEnd = () => {
+      // When speech recognition ends naturally (user stops talking),
+      // process any accumulated transcript that wasn't sent via isFinal
+      const currentTranscript = transcriptRef.current;
       setIsListening(false);
+      if (currentTranscript.trim()) {
+        setIsTranscribing(true);
+        setTimeout(() => {
+          handleVoiceResultRef.current(currentTranscript);
+          setIsTranscribing(false);
+          setTranscript('');
+          transcriptRef.current = '';
+        }, 500);
+      }
     };
 
     const handleError = (event: any) => {
@@ -755,6 +771,11 @@ export default function TriageChatScreen({ navigation, route }: any) {
       sendMessageWithText(finalTranscript);
     }
   };
+
+  // Keep ref in sync so STT event handlers always call the latest version
+  useEffect(() => {
+    handleVoiceResultRef.current = handleVoiceResult;
+  });
 
   const toggleSpeaker = () => {
     if (isSpeaking) {

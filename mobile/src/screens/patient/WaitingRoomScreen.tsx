@@ -114,8 +114,10 @@ export default function WaitingRoomScreen({ route, navigation }: any) {
     }
   };
 
-  const joinCall = () => {
+  const joinCall = async () => {
     if (roomName && patientId) {
+      // Clear saved insights since consultation is now active
+      await AsyncStorage.removeItem('savedInsights').catch(() => {});
       navigation.navigate('VideoCall', {
         roomName,
         patientId,
