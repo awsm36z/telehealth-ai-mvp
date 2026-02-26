@@ -890,6 +890,35 @@ const api = {
     }
   },
 
+  addLiveTranscriptBatch: async (
+    roomName: string,
+    entries: Array<{ speaker: string; text: string }>,
+    patientId?: string,
+    locale?: string
+  ) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/live-insights/transcript-batch`, {
+        method: 'POST',
+        body: JSON.stringify({ roomName, entries, patientId, locale }),
+      }, 10000, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to add transcript batch' };
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Add transcript batch error:', error.message);
+      return { data: null, error: error.message || 'Failed to add transcript batch' };
+    }
+  },
+
+  getBaseURL: () => {
+    return API_URL;
+  },
+
   // Report Generation
   generateReport: async (patientId: string, doctorName: string, prescriptions?: string, instructions?: string) => {
     try {

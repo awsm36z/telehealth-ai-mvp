@@ -75,6 +75,7 @@ function getStatusColor(status: 'normal' | 'warning' | 'critical'): string {
 export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const { roomName, patientId, patientName, patientLanguage, insights, biometrics, triageTranscript } = route.params;
   const { isTablet, height } = useResponsive();
+  const nativeSttSupportedInCall = Platform.OS !== 'ios';
   const assistPaneHeight = isTablet
     ? Math.min(560, Math.max(360, Math.round(height * 0.36)))
     : Math.min(460, Math.max(280, Math.round(height * 0.34)));
@@ -151,6 +152,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [autoTranscribing, setAutoTranscribing] = useState(false);
   const autoTranscribeRef = useRef(false);
   const pendingTranscriptBuffer = useRef('');
+
+  // SSE streaming state
+  const [sseConnected, setSseConnected] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const transcriptBatchBuffer = useRef<Array<{ speaker: string; text: string }>>([]);
 
   const callStartTime = useRef<number | null>(null);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
@@ -320,6 +326,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
   // Check STT availability on mount
   useEffect(() => {
+    if (!nativeSttSupportedInCall) {
+      // iOS call + native speech recognition can crash AudioUnit initialization in simulator/dev builds.
+      setSttAvailable(false);
+      return;
+    }
     if (ExpoSpeechRecognitionModule) {
       try {
         const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
@@ -328,7 +339,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         setSttAvailable(false);
       }
     }
-  }, []);
+  }, [nativeSttSupportedInCall]);
 
   // Speech recognition event listeners
   useEffect(() => {
@@ -390,11 +401,12 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     const entry = { speaker, text, timestamp: new Date().toISOString() };
     setLiveTranscriptEntries((prev) => [...prev, entry]);
 
-    // Send to backend
-    try {
-      await api.addLiveTranscript(roomName, speaker, text);
-    } catch {
-      // Non-critical, entry is already shown locally
+    // Add to batch buffer instead of sending immediately
+    transcriptBatchBuffer.current.push({ speaker, text });
+
+    // Auto-flush if buffer reaches 5 entries
+    if (transcriptBatchBuffer.current.length >= 5) {
+      flushTranscriptBatch();
     }
 
     // Auto-scroll to bottom
@@ -403,7 +415,29 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     }, 100);
   }, [roomName]);
 
+  // Flush transcript batch to backend
+  const flushTranscriptBatch = useCallback(async () => {
+    if (transcriptBatchBuffer.current.length === 0) return;
+
+    const batch = [...transcriptBatchBuffer.current];
+    transcriptBatchBuffer.current = [];
+
+    try {
+      await api.addLiveTranscriptBatch(roomName, batch, patientId, doctorLanguage);
+    } catch (error) {
+      console.error('Failed to relay transcript batch:', error);
+    }
+  }, [roomName, patientId, doctorLanguage]);
+
   const startListening = async () => {
+    if (!nativeSttSupportedInCall) {
+      Alert.alert(
+        'Manual Transcript Mode',
+        'Live speech recognition is disabled during iOS video calls for stability. Use manual transcript entry.'
+      );
+      return;
+    }
+
     if (!ExpoSpeechRecognitionModule || !sttAvailable) {
       Alert.alert(
         'Speech Recognition Unavailable',
@@ -443,6 +477,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
   // Auto-transcription: automatically start STT when call connects
   const startAutoTranscribe = useCallback(async () => {
+    if (!nativeSttSupportedInCall) return;
     if (!ExpoSpeechRecognitionModule || !sttAvailable || autoTranscribeRef.current) return;
 
     try {
@@ -461,7 +496,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       autoTranscribeRef.current = false;
       setAutoTranscribing(false);
     }
-  }, [sttAvailable, doctorLanguage]);
+  }, [nativeSttSupportedInCall, sttAvailable, doctorLanguage]);
 
   const stopAutoTranscribe = useCallback(() => {
     autoTranscribeRef.current = false;
@@ -474,6 +509,82 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       }
     }
   }, [isListening]);
+
+  // Connect to SSE stream for real-time insights
+  const connectToLiveStream = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    const API_BASE = api.getBaseURL();
+    const streamUrl = `${API_BASE}/live-insights/stream?roomName=${encodeURIComponent(roomName)}`;
+
+    console.log('[SSE] Connecting to stream:', streamUrl);
+
+    try {
+      const eventSource = new EventSource(streamUrl);
+
+      eventSource.onopen = () => {
+        console.log('[SSE] Connection established');
+        setSseConnected(true);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('[SSE] Received event:', data.type);
+
+          switch (data.type) {
+            case 'connected':
+              console.log('[SSE] Connected to room:', data.roomName);
+              break;
+
+            case 'transcript':
+              // Transcript already added locally, no need to duplicate
+              break;
+
+            case 'insight':
+              // Update live assist data with new insight
+              setLiveAssistData(data.data);
+              setLiveAssistLoading(false);
+              console.log('[SSE] Received insight update');
+              break;
+
+            case 'emergency':
+              // Show emergency alert
+              Alert.alert(
+                '⚠️ Emergency Keyword Detected',
+                data.message || 'Immediate review recommended',
+                [{ text: 'Review Now', style: 'destructive' }]
+              );
+              console.log('[SSE] Emergency detected:', data.transcript?.text);
+              break;
+          }
+        } catch (error) {
+          console.error('[SSE] Failed to parse event:', error);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('[SSE] Connection error:', error);
+        setSseConnected(false);
+        eventSource.close();
+
+        // Reconnect after 3 seconds
+        setTimeout(() => {
+          if (showLiveAssist) {
+            console.log('[SSE] Attempting to reconnect...');
+            connectToLiveStream();
+          }
+        }, 3000);
+      };
+
+      eventSourceRef.current = eventSource;
+    } catch (error) {
+      console.error('[SSE] Failed to create EventSource:', error);
+      setSseConnected(false);
+    }
+  }, [roomName, showLiveAssist]);
 
   // Open prescription modal with AI-recommended dose
   const openPrescriptionModal = async (med: { name: string; dosage?: string; rationale?: string }) => {
@@ -511,11 +622,16 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     const dose = rxDose.trim();
     const notes = rxNotes.trim();
 
+    // Build the prescription line for notes
+    const rxLine = `Rx: ${med.name}` +
+      (dose ? ` | Dose: ${dose}` : '') +
+      (med.rationale ? ` | For: ${med.rationale}` : '') +
+      (notes ? ` | Notes: ${notes}` : '');
+
     // Check if already prescribed
     const existingIndex = prescriptions.findIndex((p) => p.name === med.name);
 
     if (existingIndex >= 0) {
-      // Update existing prescription
       setPrescriptions((prev) => {
         const updated = [...prev];
         updated[existingIndex] = { ...updated[existingIndex], dosage: dose, rationale: med.rationale };
@@ -528,29 +644,25 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     // Update report prescriptions
     setReportPrescriptions((prev) => {
       const line = `${med.name}${dose ? ` - ${dose}` : ''}`;
-      // If drug already in report, replace it
       const lines = prev.split('\n').filter((l) => !l.startsWith(med.name));
       lines.push(line);
       return lines.filter(Boolean).join('\n');
     });
 
-    // Add/update in doctor notes with formatted prescription info
-    setDoctorNotes((prev) => {
-      const rxLine = `Rx: ${med.name}` +
-        (dose ? ` | Dose: ${dose}` : '') +
-        (med.rationale ? ` | For: ${med.rationale}` : '') +
-        (notes ? ` | Notes: ${notes}` : '');
+    // Update doctor notes — use direct state setter with computed value to avoid stale closure
+    const currentNotes = notesRef.current;
+    const noteLines = currentNotes.split('\n');
+    const existingRxIndex = noteLines.findIndex((l) => l.startsWith(`Rx: ${med.name}`));
+    let updatedNotes: string;
+    if (existingRxIndex >= 0) {
+      noteLines[existingRxIndex] = rxLine;
+      updatedNotes = noteLines.join('\n');
+    } else {
+      updatedNotes = currentNotes ? `${currentNotes}\n${rxLine}` : rxLine;
+    }
+    setDoctorNotes(updatedNotes);
 
-      // If drug already in notes, replace that line
-      const noteLines = prev.split('\n');
-      const existingRxIndex = noteLines.findIndex((l) => l.startsWith(`Rx: ${med.name}`));
-      if (existingRxIndex >= 0) {
-        noteLines[existingRxIndex] = rxLine;
-        return noteLines.join('\n');
-      }
-      return prev ? `${prev}\n${rxLine}` : rxLine;
-    });
-
+    // Close modal
     setRxModalVisible(false);
     setRxModalMed(null);
   };
@@ -575,18 +687,18 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     setMedAnswerLoading(false);
   };
 
-  // Issue #65: Add condition to doctor notes as diagnostic
+  // Add condition to doctor notes as diagnostic
   const addDiagnostic = (conditionName: string) => {
     if (diagnostics.includes(conditionName)) {
       Alert.alert('Already Added', `${conditionName} is already in diagnostics.`);
       return;
     }
     setDiagnostics((prev) => [...prev, conditionName]);
-    // Add to doctor notes
-    setDoctorNotes((prev) => {
-      const line = `Dx: ${conditionName}`;
-      return prev ? `${prev}\n${line}` : line;
-    });
+    // Add to doctor notes using ref for latest value
+    const currentNotes = notesRef.current;
+    const line = `Dx: ${conditionName}`;
+    const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
+    setDoctorNotes(updatedNotes);
     Alert.alert('Added to Notes', `${conditionName} added as a diagnostic to your notes.`);
   };
 
@@ -631,9 +743,29 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         api.getMedicationInsights({ patientId, locale, conversationSummary }),
       ]);
 
-      setLiveAssistData({
-        ...(liveResponse.data || {}),
-        medication: medResponse.data || null,
+      const liveData = liveResponse.data || {};
+
+      // Merge possibleDiagnostics: use API response if available, otherwise preserve
+      // seeded triage diagnostics so they aren't lost on refresh
+      setLiveAssistData((prev: any) => {
+        const apiDiagnostics = Array.isArray(liveData.possibleDiagnostics) && liveData.possibleDiagnostics.length > 0
+          ? liveData.possibleDiagnostics
+          : null;
+        const prevDiagnostics = prev?.possibleDiagnostics || [];
+
+        // If API returned diagnostics, merge with any existing ones (dedup by name)
+        let mergedDiagnostics = prevDiagnostics;
+        if (apiDiagnostics) {
+          const existingNames = new Set(apiDiagnostics.map((d: any) => d.name));
+          const uniquePrev = prevDiagnostics.filter((d: any) => !existingNames.has(d.name));
+          mergedDiagnostics = [...apiDiagnostics, ...uniquePrev];
+        }
+
+        return {
+          ...liveData,
+          possibleDiagnostics: mergedDiagnostics,
+          medication: medResponse.data || null,
+        };
       });
     } catch (error) {
       console.error('Failed to refresh live assist:', error);
@@ -656,14 +788,31 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     setMedAnswerLoading(false);
   };
 
+  // SSE connection for live insights (replaces polling)
   useEffect(() => {
     if (!showLiveAssist) return;
-    refreshLiveAssist();
+
+    // Connect to SSE stream
+    connectToLiveStream();
+
+    return () => {
+      if (eventSourceRef.current) {
+        console.log('[SSE] Closing connection');
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+        setSseConnected(false);
+      }
+    };
+  }, [showLiveAssist, connectToLiveStream]);
+
+  // Flush transcript batch every 2 seconds
+  useEffect(() => {
     const interval = setInterval(() => {
-      refreshLiveAssist();
-    }, 20000);
+      flushTranscriptBatch();
+    }, 2000);
+
     return () => clearInterval(interval);
-  }, [showLiveAssist, refreshLiveAssist]);
+  }, [flushTranscriptBatch]);
 
   useEffect(() => {
     joinCall();
@@ -686,6 +835,15 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       autoTranscribeRef.current = false;
       if (ExpoSpeechRecognitionModule) {
         try { ExpoSpeechRecognitionModule.stop(); } catch {}
+      }
+      // Flush any remaining transcript batch
+      if (transcriptBatchBuffer.current.length > 0) {
+        flushTranscriptBatch();
+      }
+      // Close SSE connection
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
   }, []);
@@ -958,6 +1116,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               <MaterialCommunityIcons name="stethoscope" size={18} color={theme.colors.primary} />
               <Text style={styles.assistPaneTitle}>Clinical Assist</Text>
               {liveAssistLoading && <ActivityIndicator size={12} color={theme.colors.primary} />}
+              {/* SSE Connection Status */}
+              <View style={styles.connectionStatus}>
+                <View style={[styles.statusDot, { backgroundColor: sseConnected ? '#4CAF50' : '#FFC107' }]} />
+                <Text style={styles.statusText}>{sseConnected ? 'Live' : 'Connecting...'}</Text>
+              </View>
             </View>
             <View style={styles.assistPaneHeaderRight}>
               <TouchableOpacity onPress={refreshLiveAssist} style={styles.assistHeaderBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -1087,10 +1250,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         <TouchableOpacity
                           style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
                           onPress={() => {
-                            setDoctorNotes((prev) => {
-                              const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
-                              return prev ? `${prev}\n${line}` : line;
-                            });
+                            const currentNotes = notesRef.current;
+                            const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
+                            const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
+                            setDoctorNotes(updatedNotes);
                             Alert.alert('Added to Notes', `${diag.name} added to consultation notes as a possible cause.`);
                           }}
                         >
@@ -2138,6 +2301,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: theme.colors.onSurface,
+  },
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: spacing.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
   },
   assistPaneHeaderRight: {
     flexDirection: 'row',
