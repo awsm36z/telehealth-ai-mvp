@@ -16,67 +16,13 @@ import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
-
-type Consultation = {
-  id: string;
-  patientId: string;
-  patientName: string;
-  patientAvatar: string | null;
-  doctorName: string;
-  roomName: string;
-  completedAt: string;
-  summary: string;
-  chiefComplaint: string | null;
-  urgency: string | null;
-  notes: string;
-  possibleConditions: string[];
-  nextSteps: string[];
-  reportStatus?: 'generating' | 'ready' | 'failed';
-  report?: string;
-};
-
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (typeof entry === 'string') return entry;
-      if (entry && typeof entry === 'object') {
-        const name = (entry as any).name || (entry as any).label || (entry as any).title;
-        if (typeof name === 'string') return name;
-      }
-      return String(entry ?? '').trim();
-    })
-    .filter(Boolean);
-}
-
-function normalizeConsultation(raw: any, index: number): Consultation {
-  const id = String(raw?.id || raw?._id || raw?.consultationId || `consultation-${index}`);
-  const completedAt = raw?.completedAt || raw?.endedAt || raw?.updatedAt || new Date().toISOString();
-  const patientName = raw?.patientName || raw?.patient?.name || raw?.name || 'Unknown patient';
-  return {
-    id,
-    patientId: String(raw?.patientId || raw?.patient?._id || raw?.patient?.id || ''),
-    patientName,
-    patientAvatar: raw?.patientAvatar || null,
-    doctorName: raw?.doctorName || raw?.doctor?.name || 'Doctor',
-    roomName: raw?.roomName || '',
-    completedAt,
-    summary: typeof raw?.summary === 'string' ? raw.summary : '',
-    chiefComplaint: typeof raw?.chiefComplaint === 'string' ? raw.chiefComplaint : null,
-    urgency: typeof raw?.urgency === 'string' ? raw.urgency : null,
-    notes: typeof raw?.notes === 'string' ? raw.notes : '',
-    possibleConditions: toStringArray(raw?.possibleConditions),
-    nextSteps: toStringArray(raw?.nextSteps),
-    reportStatus: raw?.reportStatus,
-    report: typeof raw?.report === 'string' ? raw.report : '',
-  };
-}
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' · ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+import {
+  type Consultation,
+  toStringArray,
+  normalizeConsultation,
+  formatDate,
+  isSameLocalDay,
+} from '../../utils/consultationUtils';
 
 function UrgencyChip({ urgency }: { urgency: string | null }) {
   if (!urgency) return null;
@@ -224,16 +170,6 @@ export default function DoctorHistoryScreen({ route }: any) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Consultation | null>(null);
   const todayOnly = !!route?.params?.todayOnly;
-
-  const isSameLocalDay = (iso: string) => {
-    const day = new Date(iso);
-    const now = new Date();
-    return (
-      day.getFullYear() === now.getFullYear() &&
-      day.getMonth() === now.getMonth() &&
-      day.getDate() === now.getDate()
-    );
-  };
 
   const load = useCallback(async () => {
     const result = await api.getAllConsultations();
