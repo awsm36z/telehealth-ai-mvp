@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
@@ -73,6 +74,7 @@ function getStatusColor(status: 'normal' | 'warning' | 'critical'): string {
 }
 
 export default function DoctorVideoCallScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
   const { roomName, patientId, patientName, patientLanguage, insights, biometrics, triageTranscript } = route.params;
   const { isTablet, height } = useResponsive();
   const nativeSttSupportedInCall = Platform.OS !== 'ios';
@@ -1164,12 +1166,12 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
           <View style={styles.assistPaneHeader}>
             <View style={styles.assistPaneHeaderLeft}>
               <MaterialCommunityIcons name="stethoscope" size={18} color={theme.colors.primary} />
-              <Text style={styles.assistPaneTitle}>Clinical Assist</Text>
+              <Text style={styles.assistPaneTitle}>{t('doctor.clinicalAssist')}</Text>
               {liveAssistLoading && <ActivityIndicator size={12} color={theme.colors.primary} />}
               {/* SSE Connection Status */}
               <View style={styles.connectionStatus}>
                 <View style={[styles.statusDot, { backgroundColor: sseConnected ? '#4CAF50' : '#FFC107' }]} />
-                <Text style={styles.statusText}>{sseConnected ? 'Live' : 'Connecting...'}</Text>
+                <Text style={styles.statusText}>{sseConnected ? t('doctor.live') : t('doctor.connecting')}</Text>
               </View>
             </View>
             <View style={styles.assistPaneHeaderRight}>
@@ -1188,7 +1190,12 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
           {/* Tab Bar */}
           <View style={styles.assistTabBar}>
             {(['dx', 'meds', 'context', 'notes'] as const).map((tab) => {
-              const labels: Record<string, string> = { dx: 'Dx', meds: 'Meds', context: 'Context', notes: 'Notes & Rx' };
+              const labels: Record<string, string> = {
+                dx: t('doctor.dxShort'),
+                meds: t('doctor.medsShort'),
+                context: t('doctor.context'),
+                notes: t('doctor.notesAndRx'),
+              };
               const isActive = assistTab === tab;
               return (
                 <TouchableOpacity
@@ -1213,14 +1220,14 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                   >
                     <MaterialCommunityIcons name={(autoTranscribing || isListening) ? 'stop' : 'microphone'} size={14} color={(autoTranscribing || isListening) ? '#FFFFFF' : theme.colors.primary} />
                     <Text style={[styles.sttButtonText, (autoTranscribing || isListening) && { color: '#FFFFFF' }]}>
-                      {autoTranscribing ? 'Auto-transcribing' : isListening ? 'Stop' : 'Auto-transcribe'}
+                      {autoTranscribing ? t('doctor.autoTranscribing') : isListening ? t('doctor.stopListening') : t('doctor.autoTranscribe')}
                     </Text>
                   </TouchableOpacity>
                 ) : (
                   <View style={styles.manualEntryRow}>
                     <TextInput
                       style={styles.manualEntryInput}
-                      placeholder="Type what patient says..."
+                      placeholder={t('doctor.typePatientSpeech')}
                       placeholderTextColor={theme.colors.onSurfaceVariant}
                       value={manualTranscriptInput}
                       onChangeText={setManualTranscriptInput}
@@ -1249,14 +1256,14 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               <View style={styles.assistSection}>
                 {/* Live Summary */}
                 <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Live Summary</Text>
-                  <Text style={styles.assistCardText}>{liveAssistData?.liveSummary || 'Waiting for call insights...'}</Text>
+                  <Text style={styles.assistCardLabel}>{t('doctor.liveSummary')}</Text>
+                  <Text style={styles.assistCardText}>{liveAssistData?.liveSummary || t('doctor.waitingForCallInsights')}</Text>
                 </View>
 
                 {/* Insights */}
                 {(liveAssistData?.insights || []).length > 0 && (
                   <View style={styles.assistCard}>
-                    <Text style={styles.assistCardLabel}>Insights</Text>
+                    <Text style={styles.assistCardLabel}>{t('doctor.insights')}</Text>
                     {liveAssistData.insights.map((item: string, index: number) => (
                       <View key={`live-insight-${index}`} style={styles.findingRow}>
                         <MaterialCommunityIcons name="check-circle" size={13} color={theme.colors.primary} />
@@ -1269,7 +1276,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 {/* Suggested Questions */}
                 {(liveAssistData?.suggestedQuestions || []).length > 0 && (
                   <View style={styles.assistCard}>
-                    <Text style={styles.assistCardLabel}>Suggested Questions</Text>
+                    <Text style={styles.assistCardLabel}>{t('doctor.suggestedQuestions')}</Text>
                     {liveAssistData.suggestedQuestions.map((item: string, index: number) => (
                       <Text key={`question-${index}`} style={styles.findingText}>{'\u2022'} {item}</Text>
                     ))}
@@ -1279,7 +1286,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 {/* Possible Diagnostics */}
                 {(liveAssistData?.possibleDiagnostics || []).length > 0 && (
                   <View style={styles.assistCard}>
-                    <Text style={styles.assistCardLabel}>Possible Diagnostics</Text>
+                    <Text style={styles.assistCardLabel}>{t('doctor.possibleDiagnostics')}</Text>
                     {liveAssistData.possibleDiagnostics.map((diag: any, index: number) => (
                       <View key={`diag-${index}`} style={styles.liveDiagnosticItem}>
                         <View style={styles.diagnosticItemHeader}>
@@ -1318,7 +1325,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         <View style={styles.medActions}>
                           <TouchableOpacity style={styles.medActionButton} onPress={() => addDiagnostic(diag.name)}>
                             <MaterialCommunityIcons name="clipboard-check" size={13} color={theme.colors.primary} />
-                            <Text style={styles.medActionText}>Use as Dx</Text>
+                            <Text style={styles.medActionText}>{t('doctor.useAsDx')}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
@@ -1327,18 +1334,18 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                               const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
                               const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
                               setDoctorNotes(updatedNotes);
-                              Alert.alert('Added to Notes', `${diag.name} added to consultation notes as a possible cause.`);
+                              Alert.alert(t('doctor.addedToNotesTitle'), t('doctor.dxAddedToNotes', { diagnosis: diag.name }));
                             }}
                           >
                             <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
-                            <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Add to Notes</Text>
+                            <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>{t('doctor.addToNotes')}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.medActionButton, { borderColor: (theme.colors as any).tertiary || theme.colors.secondary }]}
                             onPress={() => setAssistTab('meds')}
                           >
                             <MaterialCommunityIcons name="pill" size={13} color={(theme.colors as any).tertiary || theme.colors.secondary} />
-                            <Text style={[styles.medActionText, { color: (theme.colors as any).tertiary || theme.colors.secondary }]}>Suggest Meds</Text>
+                            <Text style={[styles.medActionText, { color: (theme.colors as any).tertiary || theme.colors.secondary }]}>{t('doctor.suggestMeds')}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1348,11 +1355,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
                 {/* Ask AI */}
                 <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Ask AI</Text>
+                  <Text style={styles.assistCardLabel}>{t('doctor.askAi')}</Text>
                   <View style={styles.aiChatRow}>
                     <TextInput
                       style={styles.aiChatInput}
-                      placeholder="Ask about conditions, symptoms..."
+                      placeholder={t('doctor.askConditionsPlaceholder')}
                       placeholderTextColor={theme.colors.onSurfaceVariant}
                       value={aiQuestion}
                       onChangeText={setAiQuestion}
@@ -1367,7 +1374,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       <MaterialCommunityIcons name="send" size={18} color={aiQuestion.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
                     </TouchableOpacity>
                   </View>
-                  {aiLoading && <Text style={styles.askAiLoading}>Thinking...</Text>}
+                  {aiLoading && <Text style={styles.askAiLoading}>{t('doctor.thinking')}</Text>}
                   {aiAnswer ? <Text style={styles.aiChatAnswer}>{aiAnswer}</Text> : null}
                 </View>
               </View>
@@ -1380,7 +1387,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 <View style={styles.aiWarningBanner}>
                   <MaterialCommunityIcons name="alert" size={14} color={theme.colors.warning} />
                   <Text style={styles.aiWarningText}>
-                    AI medication suggestions are for reference only. Always verify indications, dosage, and contraindications before prescribing.
+                    {t('doctor.aiMedicationWarning')}
                   </Text>
                 </View>
 
@@ -1390,7 +1397,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                     {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
                       <View key={`med-${index}`} style={styles.assistCard}>
                         <View style={styles.diagnosticItemHeader}>
-                          <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
+                          <Text style={styles.conditionName}>{item.name || t('doctor.medicationOption')}</Text>
                           {item.confidence && (
                             <Chip
                               mode="flat"
@@ -1436,7 +1443,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         <View style={styles.medActions}>
                           <TouchableOpacity style={styles.medActionButton} onPress={() => openPrescriptionModal({ name: item.name, dosage: item.dosage, rationale: item.rationale })}>
                             <MaterialCommunityIcons name="plus-circle" size={13} color={theme.colors.primary} />
-                            <Text style={styles.medActionText}>Use for Rx</Text>
+                            <Text style={styles.medActionText}>{t('doctor.useForRx')}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
@@ -1445,15 +1452,15 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                               const line = `Med consideration: ${item.name}${item.rationale ? ' — ' + item.rationale : ''}`;
                               const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
                               setDoctorNotes(updatedNotes);
-                              Alert.alert('Added to Notes', `${item.name} added to consultation notes.`);
+                              Alert.alert(t('doctor.addedToNotesTitle'), t('doctor.medAddedToNotes', { medication: item.name }));
                             }}
                           >
                             <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
-                            <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Add to Notes</Text>
+                            <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>{t('doctor.addToNotes')}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={[styles.medActionButton, { borderColor: theme.colors.onSurfaceVariant }]} onPress={() => lookupDrugFacts(item.name)}>
                             <MaterialCommunityIcons name="information" size={13} color={theme.colors.onSurfaceVariant} />
-                            <Text style={[styles.medActionText, { color: theme.colors.onSurfaceVariant }]}>Drug Facts</Text>
+                            <Text style={[styles.medActionText, { color: theme.colors.onSurfaceVariant }]}>{t('doctor.drugFacts')}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1461,17 +1468,17 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                   </>
                 ) : (
                   <View style={styles.assistCard}>
-                    <Text style={styles.assistCardText}>No medication suggestions yet. Refresh Clinical Assist or continue the consultation.</Text>
+                    <Text style={styles.assistCardText}>{t('doctor.noMedicationSuggestions')}</Text>
                   </View>
                 )}
 
                 {/* Medication Q&A */}
                 <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Medication Q&A</Text>
+                  <Text style={styles.assistCardLabel}>{t('doctor.medicationQna')}</Text>
                   <View style={styles.aiChatRow}>
                     <TextInput
                       style={styles.aiChatInput}
-                      placeholder="Ask about medications, dosages..."
+                      placeholder={t('doctor.askMedicationPlaceholder')}
                       placeholderTextColor={theme.colors.onSurfaceVariant}
                       value={medQuestion}
                       onChangeText={setMedQuestion}
@@ -1486,7 +1493,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       <MaterialCommunityIcons name="send" size={18} color={medQuestion.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
                     </TouchableOpacity>
                   </View>
-                  {medAnswerLoading && <Text style={styles.askAiLoading}>Thinking...</Text>}
+                  {medAnswerLoading && <Text style={styles.askAiLoading}>{t('doctor.thinking')}</Text>}
                   {medAnswer ? <Text style={styles.aiChatAnswer}>{medAnswer}</Text> : null}
                 </View>
               </View>
@@ -1498,7 +1505,12 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 {/* Sub-tab bar */}
                 <View style={styles.contextSubTabBar}>
                   {(['vitals', 'transcript', 'insights', 'history'] as const).map((sub) => {
-                    const subLabels: Record<string, string> = { vitals: 'Vitals', transcript: 'Triage Chat', insights: 'AI Insights', history: 'History' };
+                    const subLabels: Record<string, string> = {
+                      vitals: t('doctor.vitals'),
+                      transcript: t('doctor.triageChat'),
+                      insights: t('doctor.aiInsights'),
+                      history: t('doctor.history'),
+                    };
                     const isSubActive = contextSubtab === sub;
                     return (
                       <TouchableOpacity
@@ -1515,7 +1527,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 {/* Vitals sub-tab */}
                 {contextSubtab === 'vitals' && (
                   !biometrics ? (
-                    <Text style={styles.insightText}>No biometric data available for this patient.</Text>
+                    <Text style={styles.insightText}>{t('doctor.noBiometricData')}</Text>
                   ) : (
                     <View>
                       {biometrics.bloodPressureSystolic && biometrics.bloodPressureDiastolic && (
@@ -1592,7 +1604,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       )}
                       {biometrics.notes && (
                         <View style={styles.bioNotesContainer}>
-                          <Text style={styles.insightLabel}>Patient Notes</Text>
+                          <Text style={styles.insightLabel}>{t('doctor.patientNotes')}</Text>
                           <Text style={styles.insightText}>{biometrics.notes}</Text>
                         </View>
                       )}
@@ -1610,13 +1622,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       >
                         <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
                         <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
-                          {showTranslated ? 'Translated' : 'Translate'}
+                          {showTranslated ? t('doctor.translated') : t('doctor.translate')}
                         </Text>
                         {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
                       </TouchableOpacity>
                     )}
                     {!triageTranscript?.messages || triageTranscript.messages.length === 0 ? (
-                      <Text style={styles.insightText}>No triage transcript available for this patient.</Text>
+                      <Text style={styles.insightText}>{t('doctor.noTriageTranscript')}</Text>
                     ) : (
                       triageTranscript.messages.map((msg: any, index: number) => {
                         const content = showTranslated && translatedTranscript[index]
@@ -1640,7 +1652,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                                 styles.transcriptRole,
                                 { color: msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary },
                               ]}>
-                                {msg.role === 'ai' ? 'AI Triage' : 'Patient'}
+                                {msg.role === 'ai' ? t('doctor.aiTriage') : t('doctor.patient')}
                               </Text>
                               {showTranslated && translatedTranscript[index] && (
                                 <MaterialCommunityIcons name="translate" size={10} color={theme.colors.onSurfaceVariant} />
@@ -1653,7 +1665,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                     )}
                     {triageTranscript?.completedAt && (
                       <Text style={styles.transcriptTimestamp}>
-                        Completed: {new Date(triageTranscript.completedAt).toLocaleString()}
+                        {t('doctor.completedAt')}: {new Date(triageTranscript.completedAt).toLocaleString()}
                       </Text>
                     )}
                   </View>
@@ -1671,24 +1683,24 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         >
                           <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
                           <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
-                            {showTranslated ? 'Translated' : 'Translate'}
+                            {showTranslated ? t('doctor.translated') : t('doctor.translate')}
                           </Text>
                           {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
                         </TouchableOpacity>
                       )}
                       {!insights ? (
-                        <Text style={styles.insightText}>No AI insights available for this patient. Triage may not have been completed.</Text>
+                        <Text style={styles.insightText}>{t('doctor.noAiInsights')}</Text>
                       ) : (
                         <>
                           {displayInsights?.summary && (
                             <View style={styles.insightSection}>
-                              <Text style={styles.insightLabel}>Summary</Text>
+                              <Text style={styles.insightLabel}>{t('doctor.summary')}</Text>
                               <Text style={styles.insightText}>{displayInsights.summary}</Text>
                             </View>
                           )}
                           {displayInsights?.keyFindings && displayInsights.keyFindings.length > 0 && (
                             <View style={styles.insightSection}>
-                              <Text style={styles.insightLabel}>Key Findings</Text>
+                              <Text style={styles.insightLabel}>{t('doctor.keyFindings')}</Text>
                               {displayInsights.keyFindings.map((finding: string, index: number) => (
                                 <View key={index} style={styles.findingRow}>
                                   <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.primary} />
@@ -1699,7 +1711,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                           )}
                           {displayInsights?.possibleConditions && displayInsights.possibleConditions.length > 0 && (
                             <View style={styles.insightSection}>
-                              <Text style={styles.insightLabel}>Possible Conditions</Text>
+                              <Text style={styles.insightLabel}>{t('doctor.possibleConditions')}</Text>
                               {displayInsights.possibleConditions.map((condition: any, index: number) => (
                                 <TouchableOpacity key={index} style={styles.conditionRow} onPress={() => addDiagnostic(condition.name)} activeOpacity={0.7}>
                                   <Chip
@@ -1736,7 +1748,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                                   <MaterialCommunityIcons name="plus-circle-outline" size={18} color={theme.colors.primary} />
                                 </TouchableOpacity>
                               ))}
-                              <Text style={styles.tapHint}>Tap a condition to add it as a diagnostic</Text>
+                              <Text style={styles.tapHint}>{t('doctor.tapConditionHint')}</Text>
                             </View>
                           )}
                         </>
@@ -1755,7 +1767,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       >
                         <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
                         <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
-                          {showTranslated ? 'Translated' : 'Translate'}
+                          {showTranslated ? t('doctor.translated') : t('doctor.translate')}
                         </Text>
                         {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
                       </TouchableOpacity>
@@ -1763,10 +1775,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                     {historyLoading ? (
                       <View style={styles.historyLoading}>
                         <ActivityIndicator size="small" color={theme.colors.primary} />
-                        <Text style={styles.insightText}>Loading history...</Text>
+                        <Text style={styles.insightText}>{t('doctor.historyLoading')}</Text>
                       </View>
                     ) : consultationHistoryData.length === 0 ? (
-                      <Text style={styles.insightText}>No previous consultations found for this patient.</Text>
+                      <Text style={styles.insightText}>{t('doctor.noPreviousConsultations')}</Text>
                     ) : (
                       consultationHistoryData.map((consultation: any, index: number) => (
                         <View key={consultation.id || index} style={styles.historyCard}>
@@ -1796,7 +1808,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                           )}
                           {consultation.doctorNotes && (
                             <View style={styles.historyNotes}>
-                              <Text style={styles.insightLabel}>Doctor Notes</Text>
+                              <Text style={styles.insightLabel}>{t('doctor.doctorNotes')}</Text>
                               <Text style={styles.historyNotesText}>
                                 {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.doctorNotes) ||
                                   consultation.doctorNotes}
@@ -1817,11 +1829,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                 {/* Header with save indicator */}
                 <View style={styles.notesSectionHeader}>
                   <MaterialCommunityIcons name="note-edit" size={16} color={theme.colors.primary} />
-                  <Text style={styles.assistCardLabel}>Notes & Rx</Text>
+                  <Text style={styles.assistCardLabel}>{t('doctor.notesAndRx')}</Text>
                   {notesSaved && (
                     <View style={styles.savedBadge}>
                       <MaterialCommunityIcons name="check" size={10} color={theme.colors.success} />
-                      <Text style={styles.savedText}>Saved</Text>
+                      <Text style={styles.savedText}>{t('common.saved', { defaultValue: 'Saved' })}</Text>
                     </View>
                   )}
                   <TouchableOpacity
@@ -1837,11 +1849,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
                 {/* Section 1: General Notes */}
                 <View style={styles.notesFieldBlock}>
-                  <Text style={styles.notesFieldLabel}>General Notes</Text>
+                  <Text style={styles.notesFieldLabel}>{t('doctor.generalNotes')}</Text>
                   <TextInput
                     style={styles.notesTextarea}
                     multiline
-                    placeholder="Chief complaint, key observations, clinical findings..."
+                    placeholder={t('doctor.generalNotesPlaceholder')}
                     placeholderTextColor={theme.colors.onSurfaceVariant}
                     value={doctorNotes}
                     onChangeText={setDoctorNotes}
@@ -1851,7 +1863,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
                 {/* Section 2: Diagnosed Cause / Diagnostics */}
                 <View style={styles.notesFieldBlock}>
-                  <Text style={styles.notesFieldLabel}>Diagnosed Cause / Diagnostics</Text>
+                  <Text style={styles.notesFieldLabel}>{t('doctor.diagnosedCause')}</Text>
                   {diagnostics.length > 0 && (
                     <View style={styles.diagnosticsList}>
                       {diagnostics.map((dx, index) => (
@@ -1868,13 +1880,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                     </View>
                   )}
                   {diagnostics.length === 0 && (
-                    <Text style={styles.notesEmptyHint}>Use "Use as Dx" in the Dx tab to add diagnoses here.</Text>
+                    <Text style={styles.notesEmptyHint}>{t('doctor.useDxHint')}</Text>
                   )}
                 </View>
 
                 {/* Section 3: Medication / Prescription Plan */}
                 <View style={styles.notesFieldBlock}>
-                  <Text style={styles.notesFieldLabel}>Medication / Prescription Plan</Text>
+                  <Text style={styles.notesFieldLabel}>{t('doctor.medicationPlan')}</Text>
                   {prescriptions.length > 0 ? (
                     prescriptions.map((rx, index) => (
                       <View key={index} style={styles.rxListItem}>
@@ -1891,17 +1903,17 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                       </View>
                     ))
                   ) : (
-                    <Text style={styles.notesEmptyHint}>Use "Use for Rx" in the Meds tab to add prescriptions here.</Text>
+                    <Text style={styles.notesEmptyHint}>{t('doctor.useRxHint')}</Text>
                   )}
                 </View>
 
                 {/* Section 4: Additional Clinical Note */}
                 <View style={styles.notesFieldBlock}>
-                  <Text style={styles.notesFieldLabel}>Additional Clinical Note</Text>
+                  <Text style={styles.notesFieldLabel}>{t('doctor.additionalClinicalNote')}</Text>
                   <TextInput
                     style={styles.notesTextarea}
                     multiline
-                    placeholder="Follow-up instructions, red flags, patient instructions..."
+                    placeholder={t('doctor.additionalNotesPlaceholder')}
                     placeholderTextColor={theme.colors.onSurfaceVariant}
                     value={additionalNotes}
                     onChangeText={setAdditionalNotes}
@@ -1909,7 +1921,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                   />
                 </View>
 
-                <Text style={styles.autoSaveHint}>Auto-saves every 30s</Text>
+                <Text style={styles.autoSaveHint}>{t('doctor.autosaveHint')}</Text>
 
                 {/* Auto-report status banner */}
                 {autoReportStatus !== 'idle' && (
@@ -1930,9 +1942,9 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         ? theme.colors.error
                         : theme.colors.primary,
                     }]}>
-                      {autoReportStatus === 'generating' && 'Generating consultation report...'}
-                      {autoReportStatus === 'ready' && 'Report ready — tap the report icon to view.'}
-                      {autoReportStatus === 'failed' && 'Auto-report failed. Generate manually using the report icon.'}
+                      {autoReportStatus === 'generating' && t('doctor.generatingReport')}
+                      {autoReportStatus === 'ready' && t('doctor.reportReady')}
+                      {autoReportStatus === 'failed' && t('doctor.reportFailed')}
                     </Text>
                   </View>
                 )}

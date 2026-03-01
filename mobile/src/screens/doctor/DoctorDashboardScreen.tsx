@@ -19,6 +19,9 @@ export default function DoctorDashboardScreen({ navigation }: any) {
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [doctorName, setDoctorName] = useState('Doctor');
+  const [recentConsultations, setRecentConsultations] = useState<any[]>([]);
+  const [todayCompletedCount, setTodayCompletedCount] = useState(0);
+  const [avgDurationLabel, setAvgDurationLabel] = useState('0m');
 
   useEffect(() => {
     AsyncStorage.getItem('userName').then((name) => {
@@ -31,9 +34,11 @@ export default function DoctorDashboardScreen({ navigation }: any) {
     useCallback(() => {
       fetchPatients();
       fetchActiveCalls();
+      fetchConsultationStats();
       const interval = setInterval(() => {
         fetchPatients();
         fetchActiveCalls();
+        fetchConsultationStats();
       }, 5000);
       return () => clearInterval(interval);
     }, [])
@@ -71,6 +76,55 @@ export default function DoctorDashboardScreen({ navigation }: any) {
       }
     } catch (error) {
       console.error('Failed to fetch active calls:', error);
+    }
+  };
+
+  const fetchConsultationStats = async () => {
+    try {
+      const response = await api.getAllConsultations();
+      const consultations = response.data || [];
+      const now = new Date();
+      const isToday = (iso: string) => {
+        const d = new Date(iso);
+        return (
+          d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          d.getDate() === now.getDate()
+        );
+      };
+      const normalized = consultations
+        .map((item: any, index: number) => {
+          const completedAt = item?.completedAt || item?.endedAt || item?.updatedAt || new Date().toISOString();
+          const startedAt = item?.startedAt || item?.createdAt || completedAt;
+          const durationMinutes =
+            typeof item?.durationMinutes === 'number'
+              ? item.durationMinutes
+              : Math.max(1, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000));
+          return {
+            id: String(item?.id || item?._id || `c-${index}`),
+            patientName: item?.patientName || item?.patient?.name || t('common.unknown', { defaultValue: 'Unknown' }),
+            completedAt,
+            durationMinutes,
+            primaryDiagnosis:
+              item?.primaryDiagnosis ||
+              (Array.isArray(item?.possibleConditions) && item.possibleConditions[0]
+                ? (typeof item.possibleConditions[0] === 'string' ? item.possibleConditions[0] : item.possibleConditions[0]?.name)
+                : ''),
+            reportStatus: item?.reportStatus || 'ready',
+          };
+        })
+        .sort((a: any, b: any) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+
+      const todayItems = normalized.filter((item: any) => isToday(item.completedAt));
+      setTodayCompletedCount(todayItems.length);
+      setRecentConsultations(normalized.slice(0, 3));
+
+      const avg = todayItems.length
+        ? Math.round(todayItems.reduce((sum: number, item: any) => sum + (item.durationMinutes || 0), 0) / todayItems.length)
+        : 0;
+      setAvgDurationLabel(`${avg}m`);
+    } catch (error) {
+      console.error('Failed to fetch consultation stats:', error);
     }
   };
 
@@ -169,8 +223,14 @@ export default function DoctorDashboardScreen({ navigation }: any) {
             label={t('doctor.waiting')}
             color={theme.colors.warning}
           />
-          <StatCard icon="check-circle" value="8" label={t('doctor.today')} color={theme.colors.success} />
-          <StatCard icon="clock" value="24m" label={t('doctor.avgTime')} color={theme.colors.info} />
+          <StatCard
+            icon="check-circle"
+            value={String(todayCompletedCount)}
+            label={t('doctor.todayCompleted', { defaultValue: 'Completed Today' })}
+            color={theme.colors.success}
+            onPress={() => navigation.navigate('History', { todayOnly: true })}
+          />
+          <StatCard icon="clock" value={avgDurationLabel} label={t('doctor.avgTime')} color={theme.colors.info} />
         </View>
 
         {/* Search */}
@@ -219,21 +279,68 @@ export default function DoctorDashboardScreen({ navigation }: any) {
           )}
         </View>
 
+        <View style={styles.section}>
+          <View style={styles.lastConsultationsHeader}>
+            <Text style={styles.sectionTitle}>
+              {t('doctor.lastConsultations', { defaultValue: 'Last Consultations' })}
+            </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('History', { todayOnly: false, openConsultationId: null })}>
+              <Text style={styles.viewAllText}>{t('home.viewAll')}</Text>
+            </TouchableOpacity>
+          </View>
+          {recentConsultations.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Card.Content>
+                <Text style={styles.emptyText}>
+                  {t('doctor.noRecentConsultations', { defaultValue: 'No recent completed consultations' })}
+                </Text>
+              </Card.Content>
+            </Card>
+          ) : (
+            recentConsultations.map((consultation) => (
+              <TouchableOpacity
+                key={consultation.id}
+                activeOpacity={0.75}
+                onPress={() => navigation.navigate('History', { todayOnly: false, openConsultationId: consultation.id })}
+              >
+                <Card style={[styles.recentConsultationCard, shadows.small]}>
+                  <Card.Content style={styles.recentConsultationContent}>
+                    <View>
+                      <Text style={styles.recentConsultationName}>{consultation.patientName}</Text>
+                      <Text style={styles.recentConsultationMeta}>
+                        {new Date(consultation.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {consultation.durationMinutes}m
+                      </Text>
+                    </View>
+                    <View style={styles.recentConsultationRight}>
+                      <Chip compact style={styles.completedChip}>
+                        {t('history.completed')}
+                      </Chip>
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.onSurfaceVariant} />
+                    </View>
+                  </Card.Content>
+                </Card>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+
         <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function StatCard({ icon, value, label, color }: any) {
+function StatCard({ icon, value, label, color, onPress }: any) {
   return (
-    <Surface style={[styles.statCard, shadows.medium]}>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8} disabled={!onPress}>
+      <Surface style={[styles.statCard, shadows.medium]}>
       <View style={[styles.statIcon, { backgroundColor: `${color}15` }]}>
         <MaterialCommunityIcons name={icon} size={24} color={color} />
       </View>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </Surface>
+      </Surface>
+    </TouchableOpacity>
   );
 }
 
@@ -405,6 +512,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.lg,
   },
+  lastConsultationsHeader: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  viewAllText: {
+    color: theme.colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
   searchbar: {
     backgroundColor: theme.colors.surface,
   },
@@ -538,5 +656,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.onSurfaceVariant,
     textAlign: 'center',
+  },
+  recentConsultationCard: {
+    marginBottom: spacing.sm,
+    backgroundColor: theme.colors.surface,
+  },
+  recentConsultationContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  recentConsultationName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  recentConsultationMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+  },
+  recentConsultationRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  completedChip: {
+    backgroundColor: `${theme.colors.success}18`,
   },
 });

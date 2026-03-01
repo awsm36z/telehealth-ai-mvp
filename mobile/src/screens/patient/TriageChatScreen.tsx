@@ -363,6 +363,9 @@ export default function TriageChatScreen({ navigation, route }: any) {
       }
 
       setTranscript('');
+      transcriptRef.current = '';
+      accumulatedTranscriptRef.current = '';
+      manualStopRef.current = false;
       setIsListening(true);
 
       const lang = getCurrentLanguage();
@@ -984,7 +987,7 @@ export default function TriageChatScreen({ navigation, route }: any) {
                 style={styles.stopRecordingButton}
                 onPress={() => {
                   // Use accumulated transcript from continuous mode (#86)
-                  const finalText = accumulatedTranscriptRef.current || transcript;
+                  const finalText = accumulatedTranscriptRef.current || transcriptRef.current || transcript;
                   stopListening();
                   accumulatedTranscriptRef.current = '';
                   if (finalText.trim()) {

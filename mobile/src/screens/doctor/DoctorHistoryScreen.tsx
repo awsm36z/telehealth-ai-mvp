@@ -12,6 +12,7 @@ import { Text, Surface, Chip, ActivityIndicator, Searchbar } from 'react-native-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import { useResponsive } from '../../hooks/useResponsive';
 import api from '../../utils/api';
@@ -33,6 +34,43 @@ type Consultation = {
   reportStatus?: 'generating' | 'ready' | 'failed';
   report?: string;
 };
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry === 'object') {
+        const name = (entry as any).name || (entry as any).label || (entry as any).title;
+        if (typeof name === 'string') return name;
+      }
+      return String(entry ?? '').trim();
+    })
+    .filter(Boolean);
+}
+
+function normalizeConsultation(raw: any, index: number): Consultation {
+  const id = String(raw?.id || raw?._id || raw?.consultationId || `consultation-${index}`);
+  const completedAt = raw?.completedAt || raw?.endedAt || raw?.updatedAt || new Date().toISOString();
+  const patientName = raw?.patientName || raw?.patient?.name || raw?.name || 'Unknown patient';
+  return {
+    id,
+    patientId: String(raw?.patientId || raw?.patient?._id || raw?.patient?.id || ''),
+    patientName,
+    patientAvatar: raw?.patientAvatar || null,
+    doctorName: raw?.doctorName || raw?.doctor?.name || 'Doctor',
+    roomName: raw?.roomName || '',
+    completedAt,
+    summary: typeof raw?.summary === 'string' ? raw.summary : '',
+    chiefComplaint: typeof raw?.chiefComplaint === 'string' ? raw.chiefComplaint : null,
+    urgency: typeof raw?.urgency === 'string' ? raw.urgency : null,
+    notes: typeof raw?.notes === 'string' ? raw.notes : '',
+    possibleConditions: toStringArray(raw?.possibleConditions),
+    nextSteps: toStringArray(raw?.nextSteps),
+    reportStatus: raw?.reportStatus,
+    report: typeof raw?.report === 'string' ? raw.report : '',
+  };
+}
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -176,7 +214,8 @@ function DetailModal({ item, onClose }: { item: Consultation; onClose: () => voi
   );
 }
 
-export default function DoctorHistoryScreen() {
+export default function DoctorHistoryScreen({ route }: any) {
+  const { t } = useTranslation();
   const { contentContainerStyle } = useResponsive();
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [filtered, setFiltered] = useState<Consultation[]>([]);
@@ -184,15 +223,34 @@ export default function DoctorHistoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Consultation | null>(null);
+  const todayOnly = !!route?.params?.todayOnly;
+
+  const isSameLocalDay = (iso: string) => {
+    const day = new Date(iso);
+    const now = new Date();
+    return (
+      day.getFullYear() === now.getFullYear() &&
+      day.getMonth() === now.getMonth() &&
+      day.getDate() === now.getDate()
+    );
+  };
 
   const load = useCallback(async () => {
     const result = await api.getAllConsultations();
-    const data: Consultation[] = result.data || [];
+    const normalized: Consultation[] = (result.data || []).map((item: any, index: number) =>
+      normalizeConsultation(item, index)
+    );
+    const data = todayOnly ? normalized.filter((c) => isSameLocalDay(c.completedAt)) : normalized;
     setConsultations(data);
     setFiltered(data);
+    const openId = route?.params?.openConsultationId;
+    if (openId) {
+      const target = data.find((item) => String(item.id) === String(openId));
+      if (target) setSelected(target);
+    }
     setLoading(false);
     setRefreshing(false);
-  }, []);
+  }, [route?.params?.openConsultationId, todayOnly]);
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
@@ -221,12 +279,16 @@ export default function DoctorHistoryScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Consultation History</Text>
-        <Text style={styles.headerSub}>{consultations.length} consultations</Text>
+        <Text style={styles.headerTitle}>
+          {todayOnly ? t('doctor.todayCompletedTitle', { defaultValue: 'Completed Today' }) : t('doctor.historyTitle', { defaultValue: 'Consultation History' })}
+        </Text>
+        <Text style={styles.headerSub}>
+          {t('doctor.historyCount', { count: consultations.length, defaultValue: `${consultations.length} consultations` })}
+        </Text>
       </View>
 
       <Searchbar
-        placeholder="Search patient, diagnosis..."
+        placeholder={t('doctor.historySearchPlaceholder', { defaultValue: 'Search patient, diagnosis...' })}
         value={searchQuery}
         onChangeText={onSearch}
         style={styles.searchBar}
@@ -236,13 +298,15 @@ export default function DoctorHistoryScreen() {
       {loading ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.centerText}>Loading history...</Text>
+          <Text style={styles.centerText}>{t('doctor.historyLoading', { defaultValue: 'Loading history...' })}</Text>
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.centerState}>
           <MaterialCommunityIcons name="history" size={48} color={theme.colors.onSurfaceVariant} />
           <Text style={styles.centerText}>
-            {searchQuery ? 'No results found' : 'No consultations yet'}
+            {searchQuery
+              ? t('doctor.historyNoResults', { defaultValue: 'No results found' })
+              : t('doctor.historyEmpty', { defaultValue: 'No consultations yet' })}
           </Text>
         </View>
       ) : (
