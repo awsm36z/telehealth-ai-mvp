@@ -3,12 +3,14 @@ node_modules/
 .pnp
 .pnp.js
 
-# Environment Variables (IMPORTANT - Contains API Keys!)
+# Environment Variables
 .env
 .env.local
+.env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env.backup
 
 # Logs
 npm-debug.log*
@@ -57,6 +59,8 @@ mobile/ios/
 *.key
 *.mobileprovision
 *.orig.*
+*.ipa
+*.apk
 
 # Temporary files
 *.tmp
@@ -64,6 +68,8 @@ mobile/ios/
 
 # Testing
 coverage/
+.nyc_output/
 
 # Misc
-.env.backup
+.expo/
+.turbo/
