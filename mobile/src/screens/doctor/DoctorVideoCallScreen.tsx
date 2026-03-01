@@ -159,6 +159,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [diagMedSuggestions, setDiagMedSuggestions] = useState<Record<string, any[]>>({});
   const [diagMedLoading, setDiagMedLoading] = useState<Record<string, boolean>>({});
 
+  // #102: Morocco formulary search in Meds tab
+  const [moroccoQuery, setMoroccoQuery] = useState('');
+  const [moroccoResults, setMoroccoResults] = useState<any[] | null>(null);
+  const [moroccoLoading, setMoroccoLoading] = useState(false);
+
   // #99: Mandatory post-call report review + signature flow
   const [postCallStep, setPostCallStep] = useState<'idle' | 'generating' | 'reviewing' | 'signing' | 'signed' | 'failed'>('idle');
   const [reportDraft, setReportDraft] = useState('');
@@ -392,6 +397,29 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     }
     setDiagMedLoading((prev) => ({ ...prev, [diagName]: false }));
   }, [patientId, patientLanguage, insights]);
+
+  // #102: Search Morocco national formulary using medication AI with MA locale
+  const searchMoroccoDb = useCallback(async () => {
+    const query = moroccoQuery.trim();
+    if (!query) return;
+    setMoroccoLoading(true);
+    try {
+      const response = await api.getMedicationInsights({
+        patientId,
+        locale: 'MA',
+        conversationSummary: `Morocco formulary search: ${query}. Chief complaint: ${insights?.chiefComplaint || 'general'}.`,
+      });
+      const meds = (
+        response.data?.possibleMedication ||
+        response.data?.medication?.possibleMedication ||
+        []
+      );
+      setMoroccoResults(meds);
+    } catch {
+      setMoroccoResults([]);
+    }
+    setMoroccoLoading(false);
+  }, [moroccoQuery, patientId, insights]);
 
   // #99: Sign the finalized report and navigate away
   const handleSignReport = async () => {
@@ -1397,15 +1425,15 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                           </TouchableOpacity>
                         </View>
 
-                        {/* #98: Inline Recommended Medications under each diagnosis */}
+                        {/* #98/#100: Inline Possible Medications under each diagnosis (diagnosis-scoped) */}
                         <View style={styles.diagMedSection}>
                           <View style={styles.diagMedHeader}>
                             <MaterialCommunityIcons name="pill" size={12} color={theme.colors.primary} />
-                            <Text style={styles.diagMedLabel}>{t('doctor.recommendedMeds', { defaultValue: 'Recommended Medications' })}</Text>
+                            <Text style={styles.diagMedLabel}>{t('doctor.recommendedMeds')}</Text>
                             {diagMedLoading[diag.name] && <ActivityIndicator size={10} color={theme.colors.primary} />}
                             {!diagMedSuggestions[diag.name] && !diagMedLoading[diag.name] && (
                               <TouchableOpacity onPress={() => fetchDiagnosisMeds(diag.name)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                                <Text style={styles.diagMedFetchText}>{t('doctor.load', { defaultValue: 'Load' })}</Text>
+                                <Text style={styles.diagMedFetchText}>{t('doctor.load')}</Text>
                               </TouchableOpacity>
                             )}
                           </View>
@@ -1419,6 +1447,11 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                                 <View style={styles.diagMedInfo}>
                                   <Text style={styles.diagMedName}>{med.name}</Text>
                                   {med.dosage && <Text style={styles.diagMedDose}>{med.dosage}</Text>}
+                                  {med.rationale && (
+                                    <Text style={styles.diagMedRationale}>
+                                      {t('doctor.medRationale')}: {med.rationale}
+                                    </Text>
+                                  )}
                                 </View>
                                 {isPrescribed ? (
                                   <TouchableOpacity
@@ -1426,19 +1459,25 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                                     onPress={() => openPrescriptionModal({ name: med.name, dosage: med.dosage, rationale: `For ${diag.name}` })}
                                   >
                                     <MaterialCommunityIcons name="check-circle" size={11} color={theme.colors.success} />
-                                    <Text style={styles.prescribedChipText}>{t('doctor.prescribed', { defaultValue: 'Prescribed' })}</Text>
+                                    <Text style={styles.prescribedChipText}>{t('doctor.prescribed')}</Text>
                                   </TouchableOpacity>
                                 ) : (
                                   <TouchableOpacity
                                     style={styles.prescribeBtn}
                                     onPress={() => openPrescriptionModal({ name: med.name, dosage: med.dosage, rationale: `For ${diag.name}` })}
                                   >
-                                    <Text style={styles.prescribeBtnText}>{t('doctor.prescribe', { defaultValue: 'Prescribe' })}</Text>
+                                    <Text style={styles.prescribeBtnText}>{t('doctor.prescribe')}</Text>
                                   </TouchableOpacity>
                                 )}
                               </View>
                             );
                           })}
+                          {(diagMedSuggestions[diag.name] || []).length > 0 && (
+                            <View style={styles.diagMedCaution}>
+                              <MaterialCommunityIcons name="alert" size={10} color={theme.colors.warning} />
+                              <Text style={styles.diagMedCautionText}>{t('doctor.clinicalCaution')}</Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                     ))}
@@ -1472,20 +1511,74 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {/* Meds Tab */}
+            {/* Meds Tab — #102: Prescribed + Dx-derived + Morocco search + Q&A */}
             {assistTab === 'meds' && (
               <View style={styles.assistSection}>
                 {/* AI Warning */}
                 <View style={styles.aiWarningBanner}>
                   <MaterialCommunityIcons name="alert" size={14} color={theme.colors.warning} />
-                  <Text style={styles.aiWarningText}>
-                    {t('doctor.aiMedicationWarning')}
-                  </Text>
+                  <Text style={styles.aiWarningText}>{t('doctor.aiMedicationWarning')}</Text>
                 </View>
 
-                {/* Medication Cards */}
-                {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length > 0 ? (
-                  <>
+                {/* Section 1: Currently Prescribed */}
+                <View style={styles.medsTabSection}>
+                  <Text style={styles.medsTabSectionLabel}>{t('doctor.prescribedSection')}</Text>
+                  {prescriptions.length === 0 ? (
+                    <Text style={styles.medsTabEmptyText}>{t('doctor.noPrescribedMeds')}</Text>
+                  ) : (
+                    prescriptions.map((rx, idx) => (
+                      <TouchableOpacity
+                        key={`rx-${idx}`}
+                        style={styles.medsTabMedRow}
+                        onPress={() => openPrescriptionModal({ name: rx.name, dosage: rx.dosage, rationale: rx.rationale })}
+                      >
+                        <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.success} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.medsTabMedName}>{rx.name}</Text>
+                          {rx.dosage ? <Text style={styles.medsTabMedDose}>{rx.dosage}</Text> : null}
+                        </View>
+                        <MaterialCommunityIcons name="pencil" size={14} color={theme.colors.onSurfaceVariant} />
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
+
+                {/* Section 2: Possible Medications from Dx tab suggestions */}
+                {Object.keys(diagMedSuggestions).length > 0 && (
+                  <View style={styles.medsTabSection}>
+                    <Text style={styles.medsTabSectionLabel}>{t('doctor.possibleMedsFromDx')}</Text>
+                    {Object.entries(diagMedSuggestions).flatMap(([diagName, meds]) =>
+                      meds.map((med: any, mi: number) => {
+                        const isPrescribed = prescriptions.some((p) => p.name === med.name);
+                        return (
+                          <TouchableOpacity
+                            key={`dxmed-${diagName}-${mi}`}
+                            style={styles.medsTabMedRow}
+                            onPress={() => openPrescriptionModal({ name: med.name, dosage: med.dosage, rationale: `For ${diagName}` })}
+                          >
+                            <MaterialCommunityIcons
+                              name={isPrescribed ? 'check-circle' : 'pill'}
+                              size={14}
+                              color={isPrescribed ? theme.colors.success : theme.colors.primary}
+                            />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.medsTabMedName}>{med.name}</Text>
+                              <Text style={styles.medsTabMedDose}>{diagName}{med.dosage ? ` · ${med.dosage}` : ''}</Text>
+                            </View>
+                            <Text style={styles.medsTabPrescribeHint}>
+                              {isPrescribed ? t('doctor.prescribed') : t('doctor.prescribe')}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
+                  </View>
+                )}
+
+                {/* Section 3: Live AI medication suggestions */}
+                {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length > 0 && (
+                  <View style={styles.medsTabSection}>
+                    <Text style={styles.medsTabSectionLabel}>{t('doctor.recommendedMeds')}</Text>
                     {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
                       <View key={`med-${index}`} style={styles.assistCard}>
                         <View style={styles.diagnosticItemHeader}>
@@ -1493,39 +1586,15 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                           {item.confidence && (
                             <Chip
                               mode="flat"
-                              style={[
-                                styles.confidenceChip,
-                                {
-                                  backgroundColor:
-                                    item.confidence === 'High'
-                                      ? `${theme.colors.error}15`
-                                      : item.confidence === 'Medium'
-                                      ? `${theme.colors.warning}15`
-                                      : `${theme.colors.success}15`,
-                                },
-                              ]}
-                              textStyle={[
-                                styles.confidenceText,
-                                {
-                                  color:
-                                    item.confidence === 'High'
-                                      ? theme.colors.error
-                                      : item.confidence === 'Medium'
-                                      ? theme.colors.warning
-                                      : theme.colors.success,
-                                },
-                              ]}
+                              style={[styles.confidenceChip, { backgroundColor: item.confidence === 'High' ? `${theme.colors.error}15` : item.confidence === 'Medium' ? `${theme.colors.warning}15` : `${theme.colors.success}15` }]}
+                              textStyle={[styles.confidenceText, { color: item.confidence === 'High' ? theme.colors.error : item.confidence === 'Medium' ? theme.colors.warning : theme.colors.success }]}
                             >
                               {item.confidence}
                             </Chip>
                           )}
                         </View>
-                        {item.indication && (
-                          <Text style={styles.conditionDesc}>{item.indication}</Text>
-                        )}
-                        {item.rationale && (
-                          <Text style={styles.assistCardText}>{item.rationale}</Text>
-                        )}
+                        {item.indication && <Text style={styles.conditionDesc}>{item.indication}</Text>}
+                        {item.rationale && <Text style={styles.assistCardText}>{item.rationale}</Text>}
                         {item.safetyFlags && item.safetyFlags.length > 0 && item.safetyFlags.map((flag: string, fi: number) => (
                           <View key={`flag-${fi}`} style={styles.safetyFlagRow}>
                             <MaterialCommunityIcons name="alert-circle" size={12} color={theme.colors.error} />
@@ -1557,14 +1626,63 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                         </View>
                       </View>
                     ))}
-                  </>
-                ) : (
-                  <View style={styles.assistCard}>
-                    <Text style={styles.assistCardText}>{t('doctor.noMedicationSuggestions')}</Text>
                   </View>
                 )}
 
-                {/* Medication Q&A */}
+                {/* Section 4: Morocco Formulary Search */}
+                <View style={styles.medsTabSection}>
+                  <Text style={styles.medsTabSectionLabel}>{t('doctor.moroccoDbSection')}</Text>
+                  <View style={styles.aiChatRow}>
+                    <TextInput
+                      style={styles.aiChatInput}
+                      placeholder={t('doctor.moroccoDbPlaceholder')}
+                      placeholderTextColor={theme.colors.onSurfaceVariant}
+                      value={moroccoQuery}
+                      onChangeText={setMoroccoQuery}
+                      onSubmitEditing={searchMoroccoDb}
+                      returnKeyType="search"
+                    />
+                    <TouchableOpacity
+                      onPress={searchMoroccoDb}
+                      disabled={moroccoLoading || !moroccoQuery.trim()}
+                      style={styles.aiChatSend}
+                    >
+                      {moroccoLoading
+                        ? <ActivityIndicator size={16} color="#FFFFFF" />
+                        : <MaterialCommunityIcons name="magnify" size={18} color={moroccoQuery.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
+                      }
+                    </TouchableOpacity>
+                  </View>
+                  {moroccoResults !== null && moroccoResults.length === 0 && (
+                    <Text style={styles.medsTabEmptyText}>{t('doctor.noMoroccoResults')}</Text>
+                  )}
+                  {(moroccoResults || []).map((item: any, idx: number) => {
+                    const isPrescribed = prescriptions.some((p) => p.name === item.name);
+                    return (
+                      <TouchableOpacity
+                        key={`ma-${idx}`}
+                        style={styles.medsTabMedRow}
+                        onPress={() => openPrescriptionModal({ name: item.name, dosage: item.dosage, rationale: item.rationale })}
+                      >
+                        <MaterialCommunityIcons
+                          name={isPrescribed ? 'check-circle' : 'pill'}
+                          size={14}
+                          color={isPrescribed ? theme.colors.success : theme.colors.primary}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.medsTabMedName}>{item.name}</Text>
+                          {item.dosage ? <Text style={styles.medsTabMedDose}>{item.dosage}</Text> : null}
+                          {item.rationale ? <Text style={styles.medsTabMedDose}>{item.rationale}</Text> : null}
+                        </View>
+                        <Text style={styles.medsTabPrescribeHint}>
+                          {isPrescribed ? t('doctor.prescribed') : t('doctor.prescribe')}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Section 5: Medication Q&A */}
                 <View style={styles.assistCard}>
                   <Text style={styles.assistCardLabel}>{t('doctor.medicationQna')}</Text>
                   <View style={styles.aiChatRow}>
@@ -2161,6 +2279,14 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               textAlignVertical="top"
             />
 
+            {/* #101: Mandatory clinical verification warning */}
+            <View style={styles.rxClinicalWarning}>
+              <MaterialCommunityIcons name="shield-alert" size={14} color={theme.colors.error} />
+              <Text style={styles.rxClinicalWarningText}>
+                {t('doctor.clinicalVerificationRequired')}
+              </Text>
+            </View>
+
             <Button
               mode="contained"
               icon="clipboard-check"
@@ -2168,7 +2294,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               style={styles.rxModalButton}
               disabled={rxDoseLoading}
             >
-              Add to Prescription
+              {t('doctor.addToPrescription')}
             </Button>
           </View>
         </View>
@@ -2325,7 +2451,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                   mode="contained"
                   icon="check"
                   onPress={closeConsultationAfterSign}
-                  style={[styles.postCallPrimaryBtn, { marginTop: spacing.xl, minWidth: 220 }]}
+                  style={[styles.postCallPrimaryBtn, { flex: undefined, marginTop: spacing.xl, minWidth: 220 }]}
+                  contentStyle={{ minHeight: 48 }}
                 >
                   {t('doctor.closeConsultation', { defaultValue: 'Close & Save Consultation' })}
                 </Button>
@@ -3341,8 +3468,26 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   rxModalButton: {
-    marginTop: spacing.lg,
+    marginTop: spacing.sm,
     borderRadius: theme.roundness,
+  },
+  rxClinicalWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    backgroundColor: `${theme.colors.error}10`,
+    borderRadius: theme.roundness,
+    padding: spacing.sm,
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderColor: `${theme.colors.error}30`,
+  },
+  rxClinicalWarningText: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.colors.error,
+    lineHeight: 17,
+    fontWeight: '500',
   },
   assistTabBar: {
     flexDirection: 'row',
@@ -3493,6 +3638,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: theme.colors.onSurfaceVariant,
   },
+  diagMedRationale: {
+    fontSize: 10,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
+    marginTop: 1,
+  },
+  diagMedCaution: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: `${theme.colors.warning}40`,
+  },
+  diagMedCautionText: {
+    flex: 1,
+    fontSize: 10,
+    color: theme.colors.warning,
+    lineHeight: 14,
+  },
   prescribedChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3519,6 +3685,52 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
+  // #102: Meds tab sections
+  medsTabSection: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness * 1.5,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  medsTabSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: spacing.sm,
+  },
+  medsTabEmptyText: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
+    paddingVertical: spacing.xs,
+  },
+  medsTabMedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.outline,
+    minHeight: 44,
+  },
+  medsTabMedName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  medsTabMedDose: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+  medsTabPrescribeHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+
   // #99: Post-call mandatory report flow
   postCallContainer: {
     flex: 1,
@@ -3532,6 +3744,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.outline,
+    minHeight: 56,
+    overflow: 'visible',
+    backgroundColor: theme.colors.surface,
   },
   postCallTitle: {
     flex: 1,
@@ -3541,21 +3756,25 @@ const styles = StyleSheet.create({
   },
   draftChip: {
     backgroundColor: `${theme.colors.warning}18`,
-    height: 24,
+    minHeight: 32,
+    paddingHorizontal: 4,
   },
   draftChipText: {
     fontSize: 11,
     color: theme.colors.warning,
     fontWeight: '600',
+    lineHeight: 16,
   },
   signedChip: {
     backgroundColor: `${theme.colors.success}18`,
-    height: 24,
+    minHeight: 32,
+    paddingHorizontal: 4,
   },
   signedChipText: {
     fontSize: 11,
     color: theme.colors.success,
     fontWeight: '600',
+    lineHeight: 16,
   },
   postCallCenter: {
     flex: 1,

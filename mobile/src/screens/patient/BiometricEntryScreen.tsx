@@ -4,10 +4,12 @@ import { Text, TextInput, Button, SegmentedButtons, Surface, IconButton } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { theme, spacing, shadows } from '../../theme';
 import api from '../../utils/api';
 
 export default function BiometricEntryScreen({ navigation, route }: any) {
+  const { t } = useTranslation();
   const isConsultationStart = route?.params?.mode === 'consultation_start';
   const nextScreen = route?.params?.nextScreen || 'TriageFlow';
   const [biometrics, setBiometrics] = useState({
@@ -185,14 +187,14 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           onPress={() => navigation.goBack()}
         />
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Log Biometrics</Text>
+          <Text style={styles.headerTitle}>{t('biometrics.logBiometrics')}</Text>
           {isConsultationStart && (
             <>
               <Text style={styles.headerSubtitle}>
-                Your doctor is on their way! While you wait, please fill out this pre-consultation assessment.
+                {t('biometrics.preConsultationHint')}
               </Text>
               <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>1/3</Text>
+                <Text style={styles.stepBadgeText}>{t('biometrics.stepBadge')}</Text>
               </View>
             </>
           )}
@@ -215,19 +217,19 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
             style={styles.testDataButton}
             compact
           >
-            Fill with test data
+            {t('biometrics.fillTestData')}
           </Button>
 
           {/* Blood Pressure */}
           <BiometricSection
             icon="heart-pulse"
-            title="Blood Pressure"
+            title={t('biometrics.bloodPressure')}
             color={theme.colors.error}
           >
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
                 <TextInput
-                  label="Systolic"
+                  label={t('biometrics.systolicLabel')}
                   value={biometrics.bloodPressureSystolic}
                   onChangeText={(v) => updateField('bloodPressureSystolic', v)}
                   mode="outlined"
@@ -239,7 +241,7 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
               <Text style={styles.separator}>/</Text>
               <View style={{ flex: 1 }}>
                 <TextInput
-                  label="Diastolic"
+                  label={t('biometrics.diastolicLabel')}
                   value={biometrics.bloodPressureDiastolic}
                   onChangeText={(v) => updateField('bloodPressureDiastolic', v)}
                   mode="outlined"
@@ -255,11 +257,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Heart Rate */}
           <BiometricSection
             icon="heart"
-            title="Heart Rate"
+            title={t('biometrics.heartRateLabel')}
             color="#E91E63"
           >
             <TextInput
-              label="Heart Rate"
+              label={t('biometrics.heartRateLabel')}
               value={biometrics.heartRate}
               onChangeText={(v) => updateField('heartRate', v)}
               mode="outlined"
@@ -273,11 +275,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Temperature */}
           <BiometricSection
             icon="thermometer"
-            title="Temperature"
+            title={t('biometrics.temperatureLabel')}
             color="#FF9800"
           >
             <TextInput
-              label="Temperature"
+              label={t('biometrics.temperatureLabel')}
               value={biometrics.temperature}
               onChangeText={(v) => updateField('temperature', v)}
               mode="outlined"
@@ -299,11 +301,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Weight */}
           <BiometricSection
             icon="scale-bathroom"
-            title="Weight"
+            title={t('biometrics.weightLabel')}
             color="#9C27B0"
           >
             <TextInput
-              label="Weight"
+              label={t('biometrics.weightLabel')}
               value={biometrics.weight}
               onChangeText={(v) => updateField('weight', v)}
               mode="outlined"
@@ -325,11 +327,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Height */}
           <BiometricSection
             icon="human-male-height"
-            title="Height"
+            title={t('biometrics.heightLabel')}
             color="#795548"
           >
             <TextInput
-              label="Height"
+              label={t('biometrics.heightLabel')}
               value={biometrics.height}
               onChangeText={(v) => updateField('height', v)}
               mode="outlined"
@@ -351,11 +353,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Respiratory Rate */}
           <BiometricSection
             icon="lungs"
-            title="Respiratory Rate"
+            title={t('biometrics.respiratoryRateLabel')}
             color="#00BCD4"
           >
             <TextInput
-              label="Respiratory Rate"
+              label={t('biometrics.respiratoryRateLabel')}
               value={biometrics.respiratoryRate}
               onChangeText={(v) => updateField('respiratoryRate', v)}
               mode="outlined"
@@ -364,18 +366,18 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
               right={<TextInput.Affix text="breaths/min" />}
               style={styles.input}
             />
-            <Text style={styles.unitLabel}>Normal range: 12-20 breaths/min</Text>
+            <Text style={styles.unitLabel}>{t('biometrics.normalRespiratoryRange')}</Text>
           </BiometricSection>
 
           {/* Pain Level */}
           <BiometricSection
             icon="emoticon-sad"
-            title="Pain Level"
+            title={t('biometrics.painLevelLabel')}
             color="#F44336"
           >
             <View style={styles.painLevelContainer}>
               <Text style={styles.painLevelValue}>
-                {biometrics.painLevel === '' ? 'Not set' : `${biometrics.painLevel}/10 - ${getPainDescription(biometrics.painLevel)}`}
+                {biometrics.painLevel === '' ? t('biometrics.painLevelNotSet') : `${biometrics.painLevel}/10 - ${getPainDescription(biometrics.painLevel)}`}
               </Text>
               <View style={styles.painLevelButtons}>
                 {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((level) => (
@@ -402,11 +404,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Blood Oxygen */}
           <BiometricSection
             icon="water-percent"
-            title="Blood Oxygen (SpO2)"
+            title={t('biometrics.bloodOxygenLabel')}
             color="#2196F3"
           >
             <TextInput
-              label="Blood Oxygen"
+              label={t('biometrics.bloodOxygenLabel')}
               value={biometrics.bloodOxygen}
               onChangeText={(v) => updateField('bloodOxygen', v)}
               mode="outlined"
@@ -420,11 +422,11 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
           {/* Blood Sugar */}
           <BiometricSection
             icon="water"
-            title="Blood Sugar"
+            title={t('biometrics.bloodSugarLabel')}
             color="#4CAF50"
           >
             <TextInput
-              label="Blood Sugar"
+              label={t('biometrics.bloodSugarLabel')}
               value={biometrics.bloodSugar}
               onChangeText={(v) => updateField('bloodSugar', v)}
               mode="outlined"
@@ -447,14 +449,14 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
 
           {/* Notes */}
           <Surface style={[styles.notesSection, shadows.small]}>
-            <Text style={styles.notesTitle}>Additional Notes</Text>
+            <Text style={styles.notesTitle}>{t('biometrics.additionalNotes')}</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
               mode="outlined"
               multiline
               numberOfLines={4}
-              placeholder="Any additional information about your readings..."
+              placeholder={t('biometrics.additionalNotesPlaceholder')}
               style={styles.notesInput}
             />
           </Surface>
@@ -469,7 +471,7 @@ export default function BiometricEntryScreen({ navigation, route }: any) {
             loading={loading}
             disabled={loading}
           >
-            {loading ? 'Saving...' : isConsultationStart ? 'Continue to Triage' : 'Save Biometrics'}
+            {loading ? t('biometrics.saving') : isConsultationStart ? t('biometrics.continueToTriage') : t('biometrics.saveBiometrics')}
           </Button>
 
           <View style={{ height: spacing.xl }} />
