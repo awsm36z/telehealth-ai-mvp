@@ -606,6 +606,22 @@ const api = {
     }
   },
 
+  // Get all consultations across all patients for doctor history view (#91)
+  getAllConsultations: async () => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/consultations/all`, {
+        method: 'GET',
+      }, 30000, true);
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to get consultations' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      return { data: null, error: error.message || 'Failed to get consultations' };
+    }
+  },
+
   getMessageThread: async (patientId: string) => {
     try {
       const response = await fetchWithTimeout(`${API_URL}/messages/${encodeURIComponent(patientId)}`, {

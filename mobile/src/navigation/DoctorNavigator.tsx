@@ -12,6 +12,7 @@ import DoctorVideoCallScreen from '../screens/doctor/DoctorVideoCallScreen';
 import PatientDetailsScreen from '../screens/doctor/PatientDetailsScreen';
 import TriageAssessmentScreen from '../screens/doctor/TriageAssessmentScreen';
 import DoctorMedicationAssistScreen from '../screens/doctor/DoctorMedicationAssistScreen';
+import DoctorHistoryScreen from '../screens/doctor/DoctorHistoryScreen';
 import AsyncMessagesScreen from '../screens/shared/AsyncMessagesScreen';
 
 const Tab = createBottomTabNavigator();
@@ -61,6 +62,16 @@ export default function DoctorNavigator({ onLogout }: { onLogout: () => void }) 
           tabBarLabel: 'Patients',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account-multiple" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="History"
+        component={DoctorHistoryScreen}
+        options={{
+          tabBarLabel: 'History',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="history" size={size} color={color} />
           ),
         }}
       />

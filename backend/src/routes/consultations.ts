@@ -116,6 +116,33 @@ router.post('/:patientId/complete', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/consultations/all
+ * Get all consultations across all patients (doctor-side history view, #91)
+ */
+router.get('/all', async (req: Request, res: Response) => {
+  try {
+    const all: any[] = [];
+    for (const patientId of Object.keys(consultationHistory)) {
+      const entries = consultationHistory[patientId] || [];
+      for (const entry of entries) {
+        const profile = patientProfiles[patientId];
+        all.push({
+          ...entry,
+          patientName: profile?.name || `Patient ${patientId.slice(0, 6)}`,
+          patientAvatar: profile?.avatar || null,
+        });
+      }
+    }
+    // Newest first
+    all.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+    res.json(all);
+  } catch (error: any) {
+    console.error('Get all consultations error:', error);
+    res.status(500).json({ message: 'Failed to retrieve consultations', error: error.message });
+  }
+});
+
+/**
  * GET /api/consultations/:patientId/history
  * Get consultation history for a patient
  */

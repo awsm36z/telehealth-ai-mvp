@@ -17,7 +17,7 @@ echo "==> Installing deps"
 npm ci
 
 echo "==> Building/running iOS simulator dev client on EAS"
-eas build:dev -p ios -e development-simulator
+eas build:dev -p ios -e dev-sim
 
 echo "==> Starting Metro for dev client"
 npx expo start --dev-client -c

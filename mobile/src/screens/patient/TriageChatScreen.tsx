@@ -25,11 +25,9 @@ import RealtimeVoiceView, { RealtimeVoiceHandle } from '../../components/Realtim
 
 // Try to import speech recognition (requires dev build)
 let ExpoSpeechRecognitionModule: any = null;
-let useSpeechRecognitionEvent: any = null;
 try {
   const speechRecognition = require('expo-speech-recognition');
   ExpoSpeechRecognitionModule = speechRecognition.ExpoSpeechRecognitionModule;
-  useSpeechRecognitionEvent = speechRecognition.useSpeechRecognitionEvent;
 } catch (e) {
   // expo-speech-recognition not available (e.g., running in Expo Go)
   console.log('Speech recognition not available - voice input will fall back to text mode');
@@ -68,9 +66,19 @@ export default function TriageChatScreen({ navigation, route }: any) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const transcriptRef = useRef('');
+  // Accumulated transcript across multiple isFinal utterances in continuous mode (#86)
+  const accumulatedTranscriptRef = useRef('');
+  // Flag to track manual stop vs auto-stop (#86)
+  const manualStopRef = useRef(false);
+  // Request ID to prevent multiple concurrent TTS playbacks (#85)
+  const speakRequestIdRef = useRef(0);
+  // Track which message is currently playing for toggle behavior (#93)
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<string | undefined>(undefined);
   const [sttAvailable, setSttAvailable] = useState(false);
   const currentSoundRef = useRef<Audio.Sound | null>(null);
+  const handleVoiceResultRef = useRef<(text: string) => void>(() => {});
 
   // Realtime voice state
   const [isRealtimeActive, setIsRealtimeActive] = useState(false);
@@ -139,42 +147,48 @@ export default function TriageChatScreen({ navigation, route }: any) {
 
     const handleResult = (event: any) => {
       const text = event?.results?.[0]?.transcript || '';
+      // Show interim text in UI
       setTranscript(text);
+      transcriptRef.current = text;
+
+      // In continuous mode (#86): accumulate final utterances, don't stop after each one
       if (event?.isFinal && text.trim()) {
-        setIsListening(false);
-        setIsTranscribing(true);
-        setTimeout(() => {
-          handleVoiceResult(text);
-          setIsTranscribing(false);
-          setTranscript('');
-        }, 500);
+        const accumulated = accumulatedTranscriptRef.current
+          ? `${accumulatedTranscriptRef.current} ${text}`
+          : text;
+        accumulatedTranscriptRef.current = accumulated;
+        // Show the accumulated text so user sees all they've said
+        setTranscript(accumulated);
+        transcriptRef.current = accumulated;
       }
     };
 
     const handleEnd = () => {
-      // When speech recognition ends naturally (user stops talking),
-      // process any accumulated transcript that wasn't sent via isFinal
-      setIsListening((wasListening) => {
-        if (wasListening) {
-          setTranscript((currentTranscript) => {
-            if (currentTranscript.trim()) {
-              setIsTranscribing(true);
-              setTimeout(() => {
-                handleVoiceResult(currentTranscript);
-                setIsTranscribing(false);
-                setTranscript('');
-              }, 500);
-            }
-            return currentTranscript;
-          });
-        }
-        return false;
-      });
+      // If manually stopped (user pressed stop), the stop button already handles sending.
+      // Only auto-process when session ends unexpectedly (system timeout, error recovery).
+      if (manualStopRef.current) {
+        manualStopRef.current = false;
+        setIsListening(false);
+        return;
+      }
+      const currentTranscript = accumulatedTranscriptRef.current || transcriptRef.current;
+      setIsListening(false);
+      accumulatedTranscriptRef.current = '';
+      if (currentTranscript.trim()) {
+        setIsTranscribing(true);
+        setTimeout(() => {
+          handleVoiceResultRef.current(currentTranscript);
+          setIsTranscribing(false);
+          setTranscript('');
+          transcriptRef.current = '';
+        }, 500);
+      }
     };
 
     const handleError = (event: any) => {
       console.error('Speech recognition error:', event?.error, event?.message);
       setIsListening(false);
+      accumulatedTranscriptRef.current = '';
     };
 
     const resultSub = ExpoSpeechRecognitionModule.addListener?.('result', handleResult);
@@ -294,14 +308,32 @@ export default function TriageChatScreen({ navigation, route }: any) {
     });
   }, [selectedVoice]);
 
-  const speakMessage = useCallback(async (text: string, onDone?: () => void) => {
+  const speakMessage = useCallback(async (text: string, messageId?: string, onDone?: () => void) => {
+    // Increment request ID; any prior in-flight speak call will see a stale ID and bail (#85)
+    const requestId = ++speakRequestIdRef.current;
+
     await stopCurrentAudio();
+
+    // If a newer request arrived while we were stopping, abort this one
+    if (speakRequestIdRef.current !== requestId) return;
+
     setIsSpeaking(true);
+    if (messageId) setPlayingMessageId(messageId);
+
+    const done = () => {
+      if (speakRequestIdRef.current === requestId) {
+        setPlayingMessageId(null);
+        onDone?.();
+      }
+    };
 
     // Try OpenAI TTS first, fall back to device TTS
-    const success = await speakWithOpenAI(text, onDone);
+    const success = await speakWithOpenAI(text, done);
+
+    if (speakRequestIdRef.current !== requestId) return;
+
     if (!success) {
-      speakWithFallback(text, onDone);
+      speakWithFallback(text, done);
     }
   }, [stopCurrentAudio, speakWithOpenAI, speakWithFallback]);
 
@@ -336,10 +368,11 @@ export default function TriageChatScreen({ navigation, route }: any) {
       const lang = getCurrentLanguage();
       const sttLang = lang === 'fr' ? 'fr-FR' : lang === 'ar' ? 'ar-MA' : 'en-US';
 
+      // continuous: true keeps listening through natural pauses (#86)
       ExpoSpeechRecognitionModule.start({
         lang: sttLang,
         interimResults: true,
-        continuous: false,
+        continuous: true,
         addsPunctuation: true,
       });
     } catch (error) {
@@ -349,6 +382,8 @@ export default function TriageChatScreen({ navigation, route }: any) {
   };
 
   const stopListening = () => {
+    // Mark as manual stop so handleEnd doesn't double-send the transcript (#86)
+    manualStopRef.current = true;
     if (ExpoSpeechRecognitionModule) {
       try {
         ExpoSpeechRecognitionModule.stop();
@@ -773,6 +808,11 @@ export default function TriageChatScreen({ navigation, route }: any) {
     }
   };
 
+  // Keep ref in sync so STT event handlers always call the latest version
+  useEffect(() => {
+    handleVoiceResultRef.current = handleVoiceResult;
+  });
+
   const toggleSpeaker = () => {
     if (isSpeaking) {
       stopCurrentAudio();
@@ -886,7 +926,16 @@ export default function TriageChatScreen({ navigation, route }: any) {
               <MessageBubble
                 key={message.id}
                 message={message}
-                onSpeakPress={message.role === 'ai' ? () => speakMessage(message.content) : undefined}
+                isPlaying={playingMessageId === message.id}
+                onSpeakPress={message.role === 'ai' ? () => {
+                  if (playingMessageId === message.id) {
+                    // Toggle off: stop current playback (#93)
+                    stopCurrentAudio();
+                    setPlayingMessageId(null);
+                  } else {
+                    speakMessage(message.content, message.id);
+                  }
+                } : undefined}
               />
             ))
           )}
@@ -934,13 +983,17 @@ export default function TriageChatScreen({ navigation, route }: any) {
               <TouchableOpacity
                 style={styles.stopRecordingButton}
                 onPress={() => {
+                  // Use accumulated transcript from continuous mode (#86)
+                  const finalText = accumulatedTranscriptRef.current || transcript;
                   stopListening();
-                  if (transcript.trim()) {
+                  accumulatedTranscriptRef.current = '';
+                  if (finalText.trim()) {
                     setIsTranscribing(true);
                     setTimeout(() => {
-                      handleVoiceResult(transcript);
+                      handleVoiceResult(finalText);
                       setIsTranscribing(false);
                       setTranscript('');
+                      transcriptRef.current = '';
                     }, 500);
                   }
                 }}
@@ -1026,9 +1079,11 @@ export default function TriageChatScreen({ navigation, route }: any) {
 
 function MessageBubble({
   message,
+  isPlaying,
   onSpeakPress,
 }: {
   message: Message;
+  isPlaying?: boolean;
   onSpeakPress?: () => void;
 }) {
   const isAI = message.role === 'ai';
@@ -1050,7 +1105,11 @@ function MessageBubble({
           </Text>
           {isAI && onSpeakPress && (
             <TouchableOpacity onPress={onSpeakPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <MaterialCommunityIcons name="volume-high" size={14} color={theme.colors.onSurfaceVariant} />
+              <MaterialCommunityIcons
+                name={isPlaying ? 'volume-off' : 'volume-high'}
+                size={14}
+                color={isPlaying ? theme.colors.primary : theme.colors.onSurfaceVariant}
+              />
             </TouchableOpacity>
           )}
         </View>

@@ -82,16 +82,21 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
   const [isConnecting, setIsConnecting] = useState(true);
   const [dailyJoinUrl, setDailyJoinUrl] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
-  const [showBiometrics, setShowBiometrics] = useState(false);
-  const [showTranscript, setShowTranscript] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [showLiveAssist, setShowLiveAssist] = useState(true);
+  // Clinical Assist tab structure (#88)
+  const [assistTab, setAssistTab] = useState<'dx' | 'meds' | 'context' | 'notes'>('dx');
+  const [contextSubtab, setContextSubtab] = useState<'vitals' | 'transcript' | 'insights' | 'history'>('vitals');
+  // Full-screen expand for Clinical Assist (#87)
+  const [assistFullscreen, setAssistFullscreen] = useState(false);
+  // Auto-report generation state (#90)
+  const [autoReportStatus, setAutoReportStatus] = useState<'idle' | 'generating' | 'ready' | 'failed'>('idle');
   // Prescription list built from AI medication suggestions
   const [prescriptions, setPrescriptions] = useState<{ name: string; dosage?: string; rationale?: string }[]>([]);
   // Diagnostics added from AI insights
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  // Structured notes fields (#92)
+  const [additionalNotes, setAdditionalNotes] = useState('');
   const [consultationHistoryData, setConsultationHistoryData] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [reportPrescriptions, setReportPrescriptions] = useState('');
@@ -157,6 +162,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [sseConnected, setSseConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const transcriptBatchBuffer = useRef<Array<{ speaker: string; text: string }>>([]);
+  // Ref to control SSE reconnection without stale closure issues (#89)
+  const sseActiveRef = useRef(false);
 
   const callStartTime = useRef<number | null>(null);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
@@ -243,7 +250,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       }
 
       // Translate consultation history summary + notes
-      if (consultationHistoryData.length > 0 && showHistory) {
+      if (consultationHistoryData.length > 0 && assistTab === 'context' && contextSubtab === 'history') {
         const untranslated = consultationHistoryData.filter((c: any) => {
           const key = String(c.id || c.completedAt || '');
           return key && !translatedHistory[key] && (c.summary || c.doctorNotes);
@@ -278,10 +285,10 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   };
 
   useEffect(() => {
-    if (languageMismatch && showTranslated && (showTranscript || showNotes || showHistory)) {
+    if (languageMismatch && showTranslated && showLiveAssist) {
       translateContent();
     }
-  }, [showTranslated, showTranscript, showNotes, showHistory, consultationHistoryData]);
+  }, [showTranslated, showLiveAssist, assistTab, contextSubtab, consultationHistoryData]);
 
   // Load consultation history when panel is opened
   const loadHistory = async () => {
@@ -299,8 +306,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   };
 
   useEffect(() => {
-    if (showHistory) loadHistory();
-  }, [showHistory]);
+    if (assistTab === 'context' && contextSubtab === 'history') loadHistory();
+  }, [assistTab, contextSubtab]);
 
   const handleGenerateReport = async () => {
     setReportLoading(true);
@@ -322,6 +329,31 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       setGeneratedReport('Failed to connect to AI service.');
     }
     setReportLoading(false);
+  };
+
+  // Auto-generate report on call end (#90)
+  const autoGenerateReport = async () => {
+    setAutoReportStatus('generating');
+    try {
+      const docName = await AsyncStorage.getItem('userName');
+      const rxText = prescriptions
+        .map((p) => `${p.name}${p.dosage ? ` - ${p.dosage}` : ''}`)
+        .join('\n');
+      const response = await api.generateReport(
+        patientId,
+        docName || 'Doctor',
+        rxText || undefined,
+        undefined,
+      );
+      if (response.data?.report) {
+        setGeneratedReport(response.data.report);
+        setAutoReportStatus('ready');
+      } else {
+        setAutoReportStatus('failed');
+      }
+    } catch {
+      setAutoReportStatus('failed');
+    }
   };
 
   // Check STT availability on mount
@@ -516,6 +548,13 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       eventSourceRef.current.close();
     }
 
+    // Guard: only attempt if EventSource is available in this environment (#89)
+    if (typeof EventSource === 'undefined') {
+      console.warn('[SSE] EventSource not available in this environment');
+      setSseConnected(false);
+      return;
+    }
+
     const API_BASE = api.getBaseURL();
     const streamUrl = `${API_BASE}/live-insights/stream?roomName=${encodeURIComponent(roomName)}`;
 
@@ -532,7 +571,6 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[SSE] Received event:', data.type);
 
           switch (data.type) {
             case 'connected':
@@ -544,20 +582,18 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               break;
 
             case 'insight':
-              // Update live assist data with new insight
               setLiveAssistData(data.data);
               setLiveAssistLoading(false);
-              console.log('[SSE] Received insight update');
               break;
 
             case 'emergency':
-              // Show emergency alert
+              // Show emergency as an in-UI banner rather than a blocking Alert (#89)
+              console.warn('[SSE] Emergency detected:', data.transcript?.text);
               Alert.alert(
-                '⚠️ Emergency Keyword Detected',
-                data.message || 'Immediate review recommended',
-                [{ text: 'Review Now', style: 'destructive' }]
+                'Clinical Alert',
+                data.message || 'Potential urgent finding — review immediately.',
+                [{ text: 'Review', style: 'destructive' }]
               );
-              console.log('[SSE] Emergency detected:', data.transcript?.text);
               break;
           }
         } catch (error) {
@@ -565,14 +601,14 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         }
       };
 
-      eventSource.onerror = (error) => {
-        console.error('[SSE] Connection error:', error);
+      eventSource.onerror = () => {
         setSseConnected(false);
         eventSource.close();
+        eventSourceRef.current = null;
 
-        // Reconnect after 3 seconds
+        // Use ref instead of showLiveAssist to avoid stale closure (#89)
         setTimeout(() => {
-          if (showLiveAssist) {
+          if (sseActiveRef.current) {
             console.log('[SSE] Attempting to reconnect...');
             connectToLiveStream();
           }
@@ -584,7 +620,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       console.error('[SSE] Failed to create EventSource:', error);
       setSseConnected(false);
     }
-  }, [roomName, showLiveAssist]);
+  }, [roomName]);
 
   // Open prescription modal with AI-recommended dose
   const openPrescriptionModal = async (med: { name: string; dosage?: string; rationale?: string }) => {
@@ -790,12 +826,16 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
   // SSE connection for live insights (replaces polling)
   useEffect(() => {
-    if (!showLiveAssist) return;
+    if (!showLiveAssist) {
+      sseActiveRef.current = false;
+      return;
+    }
 
-    // Connect to SSE stream
+    sseActiveRef.current = true;
     connectToLiveStream();
 
     return () => {
+      sseActiveRef.current = false;
       if (eventSourceRef.current) {
         console.log('[SSE] Closing connection');
         eventSourceRef.current.close();
@@ -991,14 +1031,16 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               );
               if (completeResult.error) {
                 console.error('Failed to record consultation:', completeResult.error);
-                Alert.alert('Warning', 'Consultation notes may not have been saved to patient history.');
               } else {
                 console.log('Consultation recorded for patient:', patientId);
+                // Auto-generate report in background (#90)
+                autoGenerateReport().catch(() => {});
               }
               await api.endVideoCall(roomName);
               // Cleanup live transcript
               stopListening();
               stopAutoTranscribe();
+              sseActiveRef.current = false;
               api.clearLiveTranscript(roomName).catch(() => {});
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
@@ -1098,18 +1140,26 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
 
         {/* Panel Toggle Buttons */}
         <View style={styles.panelToggles}>
-          <IconButton icon="stethoscope" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showLiveAssist && styles.insightsButtonActive]} onPress={() => { const closing = showLiveAssist; setShowLiveAssist(!showLiveAssist); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowHistory(false); setShowReport(false); } }} />
-          <IconButton icon="chat-processing" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showTranscript && styles.insightsButtonActive]} onPress={() => { const closing = showTranscript; setShowTranscript(!showTranscript); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }} />
-          <IconButton icon="heart-pulse" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showBiometrics && styles.insightsButtonActive]} onPress={() => { const closing = showBiometrics; setShowBiometrics(!showBiometrics); if (!closing) { setShowNotes(false); setShowTranscript(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }} />
-          <IconButton icon="brain" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showNotes && styles.insightsButtonActive]} onPress={() => { const closing = showNotes; setShowNotes(!showNotes); if (!closing) { setShowBiometrics(false); setShowTranscript(false); setShowHistory(false); setShowReport(false); setShowLiveAssist(false); } }} />
-          <IconButton icon="history" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showHistory && styles.insightsButtonActive]} onPress={() => { const closing = showHistory; setShowHistory(!showHistory); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowReport(false); setShowLiveAssist(false); } }} />
-          <IconButton icon="file-document-edit" size={24} iconColor="#FFFFFF" style={[styles.insightsButton, showReport && styles.insightsButtonActive]} onPress={() => { const closing = showReport; setShowReport(!showReport); if (!closing) { setShowNotes(false); setShowBiometrics(false); setShowTranscript(false); setShowHistory(false); setShowLiveAssist(false); } }} />
+          <IconButton
+            icon="stethoscope"
+            size={24}
+            iconColor="#FFFFFF"
+            style={[styles.insightsButton, showLiveAssist && styles.insightsButtonActive]}
+            onPress={() => { setShowLiveAssist((v) => !v); setShowReport(false); }}
+          />
+          <IconButton
+            icon="file-document-edit"
+            size={24}
+            iconColor="#FFFFFF"
+            style={[styles.insightsButton, showReport && styles.insightsButtonActive]}
+            onPress={() => { setShowReport((v) => !v); setShowLiveAssist(false); }}
+          />
         </View>
       </View>
 
       {/* Clinical Assist + Notes Pane (default open) */}
       {showLiveAssist && (
-        <View style={[styles.assistPane, { height: assistPaneHeight }]}>
+        <View style={[styles.assistPane, { height: assistFullscreen ? height - (isTablet ? 120 : 100) : assistPaneHeight }]}>
           {/* Header */}
           <View style={styles.assistPaneHeader}>
             <View style={styles.assistPaneHeaderLeft}>
@@ -1126,16 +1176,35 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               <TouchableOpacity onPress={refreshLiveAssist} style={styles.assistHeaderBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <MaterialCommunityIcons name="refresh" size={16} color={theme.colors.onSurfaceVariant} />
               </TouchableOpacity>
+              <TouchableOpacity onPress={() => setAssistFullscreen((v) => !v)} style={styles.assistHeaderBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name={assistFullscreen ? 'chevron-down' : 'chevron-up'} size={18} color={theme.colors.onSurfaceVariant} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => setShowLiveAssist(false)} style={styles.assistHeaderBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <MaterialCommunityIcons name="chevron-down" size={20} color={theme.colors.onSurfaceVariant} />
+                <MaterialCommunityIcons name="close" size={18} color={theme.colors.onSurfaceVariant} />
               </TouchableOpacity>
             </View>
           </View>
 
+          {/* Tab Bar */}
+          <View style={styles.assistTabBar}>
+            {(['dx', 'meds', 'context', 'notes'] as const).map((tab) => {
+              const labels: Record<string, string> = { dx: 'Dx', meds: 'Meds', context: 'Context', notes: 'Notes & Rx' };
+              const isActive = assistTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  style={[styles.assistTabItem, isActive && styles.assistTabItemActive]}
+                  onPress={() => setAssistTab(tab)}
+                >
+                  <Text style={[styles.assistTabText, isActive && styles.assistTabTextActive]}>{labels[tab]}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <ScrollView showsVerticalScrollIndicator={false} style={styles.assistPaneScroll}>
-            {/* AI Insights Section */}
-            <View style={styles.assistSection}>
-              {/* Live transcript indicator + STT controls */}
+            {/* STT controls — always visible at top */}
+            <View style={[styles.assistSection, { paddingBottom: 0 }]}>
               <View style={styles.sttControls}>
                 {sttAvailable ? (
                   <TouchableOpacity
@@ -1173,567 +1242,705 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                   </View>
                 )}
               </View>
-
-              {/* Live Summary */}
-              <View style={styles.assistCard}>
-                <Text style={styles.assistCardLabel}>Live Summary</Text>
-                <Text style={styles.assistCardText}>{liveAssistData?.liveSummary || 'Waiting for call insights...'}</Text>
-              </View>
-
-              {/* Insights */}
-              {(liveAssistData?.insights || []).length > 0 && (
-                <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Insights</Text>
-                  {liveAssistData.insights.map((item: string, index: number) => (
-                    <View key={`live-insight-${index}`} style={styles.findingRow}>
-                      <MaterialCommunityIcons name="check-circle" size={13} color={theme.colors.primary} />
-                      <Text style={styles.findingText}>{item}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Suggested Questions */}
-              {(liveAssistData?.suggestedQuestions || []).length > 0 && (
-                <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Suggested Questions</Text>
-                  {liveAssistData.suggestedQuestions.map((item: string, index: number) => (
-                    <Text key={`question-${index}`} style={styles.findingText}>{'\u2022'} {item}</Text>
-                  ))}
-                </View>
-              )}
-
-              {/* Possible Diagnostics */}
-              {(liveAssistData?.possibleDiagnostics || []).length > 0 && (
-                <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Possible Diagnostics</Text>
-                  {liveAssistData.possibleDiagnostics.map((diag: any, index: number) => (
-                    <View key={`diag-${index}`} style={styles.liveDiagnosticItem}>
-                      <View style={styles.diagnosticItemHeader}>
-                        <Text style={styles.conditionName}>{diag.name}</Text>
-                        <Chip
-                          mode="flat"
-                          style={[
-                            styles.confidenceChip,
-                            {
-                              backgroundColor:
-                                diag.confidence === 'High'
-                                  ? `${theme.colors.error}15`
-                                  : diag.confidence === 'Medium'
-                                  ? `${theme.colors.warning}15`
-                                  : `${theme.colors.success}15`,
-                            },
-                          ]}
-                          textStyle={[
-                            styles.confidenceText,
-                            {
-                              color:
-                                diag.confidence === 'High'
-                                  ? theme.colors.error
-                                  : diag.confidence === 'Medium'
-                                  ? theme.colors.warning
-                                  : theme.colors.success,
-                            },
-                          ]}
-                        >
-                          {diag.confidence}
-                        </Chip>
-                      </View>
-                      {diag.description && (
-                        <Text style={styles.conditionDesc}>{diag.description}</Text>
-                      )}
-                      <View style={styles.medActions}>
-                        <TouchableOpacity style={styles.medActionButton} onPress={() => addDiagnostic(diag.name)}>
-                          <MaterialCommunityIcons name="clipboard-check" size={13} color={theme.colors.primary} />
-                          <Text style={styles.medActionText}>Use as Dx</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
-                          onPress={() => {
-                            const currentNotes = notesRef.current;
-                            const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
-                            const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
-                            setDoctorNotes(updatedNotes);
-                            Alert.alert('Added to Notes', `${diag.name} added to consultation notes as a possible cause.`);
-                          }}
-                        >
-                          <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
-                          <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Add to Notes</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Possible Medication */}
-              {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length > 0 && (
-                <View style={styles.assistCard}>
-                  <Text style={styles.assistCardLabel}>Possible Medication</Text>
-                  {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
-                    <View key={`med-${index}`} style={styles.liveMedicationItem}>
-                      <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
-                      <Text style={styles.conditionDesc}>{item.rationale || 'Validate indication/contraindications.'}</Text>
-                      <View style={styles.medActions}>
-                        <TouchableOpacity style={styles.medActionButton} onPress={() => openPrescriptionModal({ name: item.name, dosage: item.dosage, rationale: item.rationale })}>
-                          <MaterialCommunityIcons name="plus-circle" size={13} color={theme.colors.primary} />
-                          <Text style={styles.medActionText}>Add to Rx</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.medActionButton} onPress={() => lookupDrugFacts(item.name)}>
-                          <MaterialCommunityIcons name="information" size={13} color={theme.colors.secondary} />
-                          <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Drug Facts</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* AI Chat */}
-              <View style={styles.assistCard}>
-                <Text style={styles.assistCardLabel}>Ask AI</Text>
-                <View style={styles.aiChatRow}>
-                  <TextInput
-                    style={styles.aiChatInput}
-                    placeholder="Ask about medications, conditions..."
-                    placeholderTextColor={theme.colors.onSurfaceVariant}
-                    value={medQuestion}
-                    onChangeText={setMedQuestion}
-                    onSubmitEditing={askMedicationInCall}
-                    returnKeyType="send"
-                  />
-                  <TouchableOpacity
-                    onPress={askMedicationInCall}
-                    disabled={medAnswerLoading || !medQuestion.trim()}
-                    style={styles.aiChatSend}
-                  >
-                    <MaterialCommunityIcons name="send" size={18} color={medQuestion.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
-                  </TouchableOpacity>
-                </View>
-                {medAnswerLoading && <Text style={styles.askAiLoading}>Thinking...</Text>}
-                {medAnswer ? <Text style={styles.aiChatAnswer}>{medAnswer}</Text> : null}
-              </View>
             </View>
 
-            {/* Divider */}
-            <View style={styles.assistDivider} />
+            {/* Dx Tab */}
+            {assistTab === 'dx' && (
+              <View style={styles.assistSection}>
+                {/* Live Summary */}
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Live Summary</Text>
+                  <Text style={styles.assistCardText}>{liveAssistData?.liveSummary || 'Waiting for call insights...'}</Text>
+                </View>
 
-            {/* Notes Section */}
-            <View style={styles.assistSection}>
-              <View style={styles.notesSectionHeader}>
-                <MaterialCommunityIcons name="note-edit" size={16} color={theme.colors.primary} />
-                <Text style={styles.assistCardLabel}>Consultation Notes</Text>
-                {notesSaved && (
-                  <View style={styles.savedBadge}>
-                    <MaterialCommunityIcons name="check" size={10} color={theme.colors.success} />
-                    <Text style={styles.savedText}>Saved</Text>
+                {/* Insights */}
+                {(liveAssistData?.insights || []).length > 0 && (
+                  <View style={styles.assistCard}>
+                    <Text style={styles.assistCardLabel}>Insights</Text>
+                    {liveAssistData.insights.map((item: string, index: number) => (
+                      <View key={`live-insight-${index}`} style={styles.findingRow}>
+                        <MaterialCommunityIcons name="check-circle" size={13} color={theme.colors.primary} />
+                        <Text style={styles.findingText}>{item}</Text>
+                      </View>
+                    ))}
                   </View>
                 )}
-                <TouchableOpacity onPress={() => saveNotes(doctorNotes)} style={styles.saveNowButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <MaterialCommunityIcons name="content-save" size={14} color={theme.colors.primary} />
-                </TouchableOpacity>
-              </View>
 
-              {/* Diagnostics chips */}
-              {diagnostics.length > 0 && (
-                <View style={styles.diagnosticsList}>
-                  {diagnostics.map((dx, index) => (
-                    <View key={index} style={styles.diagnosticChip}>
-                      <Text style={styles.diagnosticText}>{dx}</Text>
-                      <TouchableOpacity onPress={() => setDiagnostics((prev) => prev.filter((_, i) => i !== index))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                        <MaterialCommunityIcons name="close-circle" size={12} color={theme.colors.onSurfaceVariant} />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
+                {/* Suggested Questions */}
+                {(liveAssistData?.suggestedQuestions || []).length > 0 && (
+                  <View style={styles.assistCard}>
+                    <Text style={styles.assistCardLabel}>Suggested Questions</Text>
+                    {liveAssistData.suggestedQuestions.map((item: string, index: number) => (
+                      <Text key={`question-${index}`} style={styles.findingText}>{'\u2022'} {item}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {/* Possible Diagnostics */}
+                {(liveAssistData?.possibleDiagnostics || []).length > 0 && (
+                  <View style={styles.assistCard}>
+                    <Text style={styles.assistCardLabel}>Possible Diagnostics</Text>
+                    {liveAssistData.possibleDiagnostics.map((diag: any, index: number) => (
+                      <View key={`diag-${index}`} style={styles.liveDiagnosticItem}>
+                        <View style={styles.diagnosticItemHeader}>
+                          <Text style={styles.conditionName}>{diag.name}</Text>
+                          <Chip
+                            mode="flat"
+                            style={[
+                              styles.confidenceChip,
+                              {
+                                backgroundColor:
+                                  diag.confidence === 'High'
+                                    ? `${theme.colors.error}15`
+                                    : diag.confidence === 'Medium'
+                                    ? `${theme.colors.warning}15`
+                                    : `${theme.colors.success}15`,
+                              },
+                            ]}
+                            textStyle={[
+                              styles.confidenceText,
+                              {
+                                color:
+                                  diag.confidence === 'High'
+                                    ? theme.colors.error
+                                    : diag.confidence === 'Medium'
+                                    ? theme.colors.warning
+                                    : theme.colors.success,
+                              },
+                            ]}
+                          >
+                            {diag.confidence}
+                          </Chip>
+                        </View>
+                        {diag.description && (
+                          <Text style={styles.conditionDesc}>{diag.description}</Text>
+                        )}
+                        <View style={styles.medActions}>
+                          <TouchableOpacity style={styles.medActionButton} onPress={() => addDiagnostic(diag.name)}>
+                            <MaterialCommunityIcons name="clipboard-check" size={13} color={theme.colors.primary} />
+                            <Text style={styles.medActionText}>Use as Dx</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
+                            onPress={() => {
+                              const currentNotes = notesRef.current;
+                              const line = `Possible Dx: ${diag.name} (${diag.confidence} confidence)${diag.description ? ' — ' + diag.description : ''}`;
+                              const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
+                              setDoctorNotes(updatedNotes);
+                              Alert.alert('Added to Notes', `${diag.name} added to consultation notes as a possible cause.`);
+                            }}
+                          >
+                            <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
+                            <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Add to Notes</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.medActionButton, { borderColor: (theme.colors as any).tertiary || theme.colors.secondary }]}
+                            onPress={() => setAssistTab('meds')}
+                          >
+                            <MaterialCommunityIcons name="pill" size={13} color={(theme.colors as any).tertiary || theme.colors.secondary} />
+                            <Text style={[styles.medActionText, { color: (theme.colors as any).tertiary || theme.colors.secondary }]}>Suggest Meds</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Ask AI */}
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Ask AI</Text>
+                  <View style={styles.aiChatRow}>
+                    <TextInput
+                      style={styles.aiChatInput}
+                      placeholder="Ask about conditions, symptoms..."
+                      placeholderTextColor={theme.colors.onSurfaceVariant}
+                      value={aiQuestion}
+                      onChangeText={setAiQuestion}
+                      onSubmitEditing={handleAskAI}
+                      returnKeyType="send"
+                    />
+                    <TouchableOpacity
+                      onPress={handleAskAI}
+                      disabled={aiLoading || !aiQuestion.trim()}
+                      style={styles.aiChatSend}
+                    >
+                      <MaterialCommunityIcons name="send" size={18} color={aiQuestion.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
+                    </TouchableOpacity>
+                  </View>
+                  {aiLoading && <Text style={styles.askAiLoading}>Thinking...</Text>}
+                  {aiAnswer ? <Text style={styles.aiChatAnswer}>{aiAnswer}</Text> : null}
                 </View>
-              )}
+              </View>
+            )}
 
-              <TextInput
-                style={styles.notesTextarea}
-                multiline
-                placeholder="Type your consultation notes here..."
-                placeholderTextColor={theme.colors.onSurfaceVariant}
-                value={doctorNotes}
-                onChangeText={setDoctorNotes}
-                textAlignVertical="top"
-              />
-              <Text style={styles.autoSaveHint}>Auto-saves every 30s</Text>
-            </View>
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Chat Transcript Panel (Slide up) */}
-      {showTranscript && (
-        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
-          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.insightsPanelHeader}>
-              <MaterialCommunityIcons name="chat-processing" size={20} color={theme.colors.secondary} />
-              <Text style={styles.insightsPanelTitle}>Triage Transcript</Text>
-              {languageMismatch && (
-                <TouchableOpacity
-                  style={[styles.translateToggle, showTranslated && styles.translateToggleActive]}
-                  onPress={() => setShowTranslated(!showTranslated)}
-                >
-                  <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
-                  <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
-                    {showTranslated ? 'Translated' : 'Translate'}
+            {/* Meds Tab */}
+            {assistTab === 'meds' && (
+              <View style={styles.assistSection}>
+                {/* AI Warning */}
+                <View style={styles.aiWarningBanner}>
+                  <MaterialCommunityIcons name="alert" size={14} color={theme.colors.warning} />
+                  <Text style={styles.aiWarningText}>
+                    AI medication suggestions are for reference only. Always verify indications, dosage, and contraindications before prescribing.
                   </Text>
-                  {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
-                </TouchableOpacity>
-              )}
-              <IconButton
-                icon="close"
-                size={18}
-                onPress={() => setShowTranscript(false)}
-                style={styles.closeInsights}
-              />
-            </View>
+                </View>
 
-            {!triageTranscript?.messages || triageTranscript.messages.length === 0 ? (
-              <Text style={styles.insightText}>No triage transcript available for this patient.</Text>
-            ) : (
-              triageTranscript.messages.map((msg: any, index: number) => {
-                const content = showTranslated && translatedTranscript[index]
-                  ? translatedTranscript[index]
-                  : msg.content;
-                return (
-                  <View
-                    key={index}
-                    style={[
-                      styles.transcriptBubble,
-                      msg.role === 'ai' ? styles.transcriptAi : styles.transcriptPatient,
-                    ]}
-                  >
-                    <View style={styles.transcriptHeader}>
-                      <MaterialCommunityIcons
-                        name={msg.role === 'ai' ? 'robot' : 'account'}
-                        size={14}
-                        color={msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary}
-                      />
-                      <Text style={[
-                        styles.transcriptRole,
-                        { color: msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary },
-                      ]}>
-                        {msg.role === 'ai' ? 'AI Triage' : 'Patient'}
-                      </Text>
-                      {showTranslated && translatedTranscript[index] && (
-                        <MaterialCommunityIcons name="translate" size={10} color={theme.colors.onSurfaceVariant} />
+                {/* Medication Cards */}
+                {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).length > 0 ? (
+                  <>
+                    {(liveAssistData?.medication?.possibleMedication || liveAssistData?.possibleMedication || []).map((item: any, index: number) => (
+                      <View key={`med-${index}`} style={styles.assistCard}>
+                        <View style={styles.diagnosticItemHeader}>
+                          <Text style={styles.conditionName}>{item.name || 'Medication option'}</Text>
+                          {item.confidence && (
+                            <Chip
+                              mode="flat"
+                              style={[
+                                styles.confidenceChip,
+                                {
+                                  backgroundColor:
+                                    item.confidence === 'High'
+                                      ? `${theme.colors.error}15`
+                                      : item.confidence === 'Medium'
+                                      ? `${theme.colors.warning}15`
+                                      : `${theme.colors.success}15`,
+                                },
+                              ]}
+                              textStyle={[
+                                styles.confidenceText,
+                                {
+                                  color:
+                                    item.confidence === 'High'
+                                      ? theme.colors.error
+                                      : item.confidence === 'Medium'
+                                      ? theme.colors.warning
+                                      : theme.colors.success,
+                                },
+                              ]}
+                            >
+                              {item.confidence}
+                            </Chip>
+                          )}
+                        </View>
+                        {item.indication && (
+                          <Text style={styles.conditionDesc}>{item.indication}</Text>
+                        )}
+                        {item.rationale && (
+                          <Text style={styles.assistCardText}>{item.rationale}</Text>
+                        )}
+                        {item.safetyFlags && item.safetyFlags.length > 0 && item.safetyFlags.map((flag: string, fi: number) => (
+                          <View key={`flag-${fi}`} style={styles.safetyFlagRow}>
+                            <MaterialCommunityIcons name="alert-circle" size={12} color={theme.colors.error} />
+                            <Text style={styles.safetyFlagText}>{flag}</Text>
+                          </View>
+                        ))}
+                        <View style={styles.medActions}>
+                          <TouchableOpacity style={styles.medActionButton} onPress={() => openPrescriptionModal({ name: item.name, dosage: item.dosage, rationale: item.rationale })}>
+                            <MaterialCommunityIcons name="plus-circle" size={13} color={theme.colors.primary} />
+                            <Text style={styles.medActionText}>Use for Rx</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.medActionButton, { borderColor: theme.colors.secondary }]}
+                            onPress={() => {
+                              const currentNotes = notesRef.current;
+                              const line = `Med consideration: ${item.name}${item.rationale ? ' — ' + item.rationale : ''}`;
+                              const updatedNotes = currentNotes ? `${currentNotes}\n${line}` : line;
+                              setDoctorNotes(updatedNotes);
+                              Alert.alert('Added to Notes', `${item.name} added to consultation notes.`);
+                            }}
+                          >
+                            <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
+                            <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>Add to Notes</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.medActionButton, { borderColor: theme.colors.onSurfaceVariant }]} onPress={() => lookupDrugFacts(item.name)}>
+                            <MaterialCommunityIcons name="information" size={13} color={theme.colors.onSurfaceVariant} />
+                            <Text style={[styles.medActionText, { color: theme.colors.onSurfaceVariant }]}>Drug Facts</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                ) : (
+                  <View style={styles.assistCard}>
+                    <Text style={styles.assistCardText}>No medication suggestions yet. Refresh Clinical Assist or continue the consultation.</Text>
+                  </View>
+                )}
+
+                {/* Medication Q&A */}
+                <View style={styles.assistCard}>
+                  <Text style={styles.assistCardLabel}>Medication Q&A</Text>
+                  <View style={styles.aiChatRow}>
+                    <TextInput
+                      style={styles.aiChatInput}
+                      placeholder="Ask about medications, dosages..."
+                      placeholderTextColor={theme.colors.onSurfaceVariant}
+                      value={medQuestion}
+                      onChangeText={setMedQuestion}
+                      onSubmitEditing={askMedicationInCall}
+                      returnKeyType="send"
+                    />
+                    <TouchableOpacity
+                      onPress={askMedicationInCall}
+                      disabled={medAnswerLoading || !medQuestion.trim()}
+                      style={styles.aiChatSend}
+                    >
+                      <MaterialCommunityIcons name="send" size={18} color={medQuestion.trim() ? '#FFFFFF' : 'rgba(255,255,255,0.5)'} />
+                    </TouchableOpacity>
+                  </View>
+                  {medAnswerLoading && <Text style={styles.askAiLoading}>Thinking...</Text>}
+                  {medAnswer ? <Text style={styles.aiChatAnswer}>{medAnswer}</Text> : null}
+                </View>
+              </View>
+            )}
+
+            {/* Context Tab */}
+            {assistTab === 'context' && (
+              <View style={styles.assistSection}>
+                {/* Sub-tab bar */}
+                <View style={styles.contextSubTabBar}>
+                  {(['vitals', 'transcript', 'insights', 'history'] as const).map((sub) => {
+                    const subLabels: Record<string, string> = { vitals: 'Vitals', transcript: 'Triage Chat', insights: 'AI Insights', history: 'History' };
+                    const isSubActive = contextSubtab === sub;
+                    return (
+                      <TouchableOpacity
+                        key={sub}
+                        style={[styles.contextSubTabItem, isSubActive && styles.contextSubTabItemActive]}
+                        onPress={() => setContextSubtab(sub)}
+                      >
+                        <Text style={[styles.contextSubTabText, isSubActive && styles.contextSubTabTextActive]}>{subLabels[sub]}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Vitals sub-tab */}
+                {contextSubtab === 'vitals' && (
+                  !biometrics ? (
+                    <Text style={styles.insightText}>No biometric data available for this patient.</Text>
+                  ) : (
+                    <View>
+                      {biometrics.bloodPressureSystolic && biometrics.bloodPressureDiastolic && (
+                        <BiometricRow
+                          icon="blood-bag"
+                          label="Blood Pressure"
+                          value={`${biometrics.bloodPressureSystolic}/${biometrics.bloodPressureDiastolic} mmHg`}
+                          status={checkBiometricStatus('bloodPressureSystolic', biometrics.bloodPressureSystolic)}
+                        />
+                      )}
+                      {biometrics.heartRate && (
+                        <BiometricRow
+                          icon="heart-pulse"
+                          label="Heart Rate"
+                          value={`${biometrics.heartRate} bpm`}
+                          status={checkBiometricStatus('heartRate', biometrics.heartRate)}
+                        />
+                      )}
+                      {biometrics.temperature && (
+                        <BiometricRow
+                          icon="thermometer"
+                          label="Temperature"
+                          value={`${biometrics.temperature}${biometrics.temperatureUnit === 'C' ? '°C' : '°F'}`}
+                          status={checkBiometricStatus('temperature', biometrics.temperature, biometrics)}
+                        />
+                      )}
+                      {biometrics.bloodOxygen && (
+                        <BiometricRow
+                          icon="lungs"
+                          label="SpO2"
+                          value={`${biometrics.bloodOxygen}%`}
+                          status={checkBiometricStatus('bloodOxygen', biometrics.bloodOxygen)}
+                        />
+                      )}
+                      {biometrics.respiratoryRate && (
+                        <BiometricRow
+                          icon="weather-windy"
+                          label="Respiratory Rate"
+                          value={`${biometrics.respiratoryRate} breaths/min`}
+                          status={checkBiometricStatus('respiratoryRate', biometrics.respiratoryRate)}
+                        />
+                      )}
+                      {biometrics.bloodSugar && (
+                        <BiometricRow
+                          icon="water"
+                          label="Blood Sugar"
+                          value={`${biometrics.bloodSugar} mg/dL${biometrics.bloodSugarContext ? ` (${biometrics.bloodSugarContext})` : ''}`}
+                          status={checkBiometricStatus('bloodSugar', biometrics.bloodSugar)}
+                        />
+                      )}
+                      {biometrics.painLevel && (
+                        <BiometricRow
+                          icon="alert-circle"
+                          label="Pain Level"
+                          value={`${biometrics.painLevel}/10`}
+                          status={checkBiometricStatus('painLevel', biometrics.painLevel)}
+                        />
+                      )}
+                      {biometrics.weight && (
+                        <BiometricRow
+                          icon="scale-bathroom"
+                          label="Weight"
+                          value={`${biometrics.weight} ${biometrics.weightUnit || 'lbs'}`}
+                          status={{ status: 'normal', label: '' }}
+                        />
+                      )}
+                      {biometrics.height && (
+                        <BiometricRow
+                          icon="human-male-height"
+                          label="Height"
+                          value={`${biometrics.height} ${biometrics.heightUnit || 'cm'}`}
+                          status={{ status: 'normal', label: '' }}
+                        />
+                      )}
+                      {biometrics.notes && (
+                        <View style={styles.bioNotesContainer}>
+                          <Text style={styles.insightLabel}>Patient Notes</Text>
+                          <Text style={styles.insightText}>{biometrics.notes}</Text>
+                        </View>
                       )}
                     </View>
-                    <Text style={styles.transcriptMessage}>{content}</Text>
-                  </View>
-                );
-              })
-            )}
-
-            {triageTranscript?.completedAt && (
-              <Text style={styles.transcriptTimestamp}>
-                Completed: {new Date(triageTranscript.completedAt).toLocaleString()}
-              </Text>
-            )}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Biometrics Panel (Slide up) */}
-      {showBiometrics && (
-        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
-          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.insightsPanelHeader}>
-              <MaterialCommunityIcons name="heart-pulse" size={20} color={theme.colors.error} />
-              <Text style={styles.insightsPanelTitle}>Patient Vitals</Text>
-              <IconButton
-                icon="close"
-                size={18}
-                onPress={() => setShowBiometrics(false)}
-                style={styles.closeInsights}
-              />
-            </View>
-
-            {!biometrics ? (
-              <Text style={styles.insightText}>No biometric data available for this patient.</Text>
-            ) : (
-              <View>
-                {/* Blood Pressure */}
-                {biometrics.bloodPressureSystolic && biometrics.bloodPressureDiastolic && (
-                  <BiometricRow
-                    icon="blood-bag"
-                    label="Blood Pressure"
-                    value={`${biometrics.bloodPressureSystolic}/${biometrics.bloodPressureDiastolic} mmHg`}
-                    status={checkBiometricStatus('bloodPressureSystolic', biometrics.bloodPressureSystolic)}
-                  />
+                  )
                 )}
 
-                {/* Heart Rate */}
-                {biometrics.heartRate && (
-                  <BiometricRow
-                    icon="heart-pulse"
-                    label="Heart Rate"
-                    value={`${biometrics.heartRate} bpm`}
-                    status={checkBiometricStatus('heartRate', biometrics.heartRate)}
-                  />
-                )}
-
-                {/* Temperature */}
-                {biometrics.temperature && (
-                  <BiometricRow
-                    icon="thermometer"
-                    label="Temperature"
-                    value={`${biometrics.temperature}${biometrics.temperatureUnit === 'C' ? '°C' : '°F'}`}
-                    status={checkBiometricStatus('temperature', biometrics.temperature, biometrics)}
-                  />
-                )}
-
-                {/* Blood Oxygen */}
-                {biometrics.bloodOxygen && (
-                  <BiometricRow
-                    icon="lungs"
-                    label="SpO2"
-                    value={`${biometrics.bloodOxygen}%`}
-                    status={checkBiometricStatus('bloodOxygen', biometrics.bloodOxygen)}
-                  />
-                )}
-
-                {/* Respiratory Rate */}
-                {biometrics.respiratoryRate && (
-                  <BiometricRow
-                    icon="weather-windy"
-                    label="Respiratory Rate"
-                    value={`${biometrics.respiratoryRate} breaths/min`}
-                    status={checkBiometricStatus('respiratoryRate', biometrics.respiratoryRate)}
-                  />
-                )}
-
-                {/* Blood Sugar */}
-                {biometrics.bloodSugar && (
-                  <BiometricRow
-                    icon="water"
-                    label="Blood Sugar"
-                    value={`${biometrics.bloodSugar} mg/dL${biometrics.bloodSugarContext ? ` (${biometrics.bloodSugarContext})` : ''}`}
-                    status={checkBiometricStatus('bloodSugar', biometrics.bloodSugar)}
-                  />
-                )}
-
-                {/* Pain Level */}
-                {biometrics.painLevel && (
-                  <BiometricRow
-                    icon="alert-circle"
-                    label="Pain Level"
-                    value={`${biometrics.painLevel}/10`}
-                    status={checkBiometricStatus('painLevel', biometrics.painLevel)}
-                  />
-                )}
-
-                {/* Weight & Height */}
-                {biometrics.weight && (
-                  <BiometricRow
-                    icon="scale-bathroom"
-                    label="Weight"
-                    value={`${biometrics.weight} ${biometrics.weightUnit || 'lbs'}`}
-                    status={{ status: 'normal', label: '' }}
-                  />
-                )}
-                {biometrics.height && (
-                  <BiometricRow
-                    icon="human-male-height"
-                    label="Height"
-                    value={`${biometrics.height} ${biometrics.heightUnit || 'cm'}`}
-                    status={{ status: 'normal', label: '' }}
-                  />
-                )}
-
-                {/* Notes */}
-                {biometrics.notes && (
-                  <View style={styles.bioNotesContainer}>
-                    <Text style={styles.insightLabel}>Patient Notes</Text>
-                    <Text style={styles.insightText}>{biometrics.notes}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Patient History Panel */}
-      {showHistory && (
-        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
-          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.insightsPanelHeader}>
-              <MaterialCommunityIcons name="history" size={20} color={theme.colors.primary} />
-              <Text style={styles.insightsPanelTitle}>Patient History</Text>
-              <IconButton
-                icon="close"
-                size={18}
-                onPress={() => setShowHistory(false)}
-                style={styles.closeInsights}
-              />
-            </View>
-
-            {historyLoading ? (
-              <View style={styles.historyLoading}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-                <Text style={styles.insightText}>Loading history...</Text>
-              </View>
-            ) : consultationHistoryData.length === 0 ? (
-              <Text style={styles.insightText}>No previous consultations found for this patient.</Text>
-            ) : (
-              consultationHistoryData.map((consultation: any, index: number) => (
-                <View key={consultation.id || index} style={styles.historyCard}>
-                  <View style={styles.historyCardHeader}>
-                    <MaterialCommunityIcons name="calendar" size={14} color={theme.colors.primary} />
-                    <Text style={styles.historyDate}>
-                      {new Date(consultation.completedAt).toLocaleDateString()}
-                    </Text>
-                    {consultation.doctorName && (
-                      <Text style={styles.historyDoctor}>Dr. {consultation.doctorName}</Text>
+                {/* Triage Chat sub-tab */}
+                {contextSubtab === 'transcript' && (
+                  <View>
+                    {languageMismatch && (
+                      <TouchableOpacity
+                        style={[styles.translateToggle, showTranslated && styles.translateToggleActive, { marginBottom: 8 }]}
+                        onPress={() => setShowTranslated(!showTranslated)}
+                      >
+                        <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
+                        <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
+                          {showTranslated ? 'Translated' : 'Translate'}
+                        </Text>
+                        {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
+                      </TouchableOpacity>
+                    )}
+                    {!triageTranscript?.messages || triageTranscript.messages.length === 0 ? (
+                      <Text style={styles.insightText}>No triage transcript available for this patient.</Text>
+                    ) : (
+                      triageTranscript.messages.map((msg: any, index: number) => {
+                        const content = showTranslated && translatedTranscript[index]
+                          ? translatedTranscript[index]
+                          : msg.content;
+                        return (
+                          <View
+                            key={index}
+                            style={[
+                              styles.transcriptBubble,
+                              msg.role === 'ai' ? styles.transcriptAi : styles.transcriptPatient,
+                            ]}
+                          >
+                            <View style={styles.transcriptHeader}>
+                              <MaterialCommunityIcons
+                                name={msg.role === 'ai' ? 'robot' : 'account'}
+                                size={14}
+                                color={msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary}
+                              />
+                              <Text style={[
+                                styles.transcriptRole,
+                                { color: msg.role === 'ai' ? theme.colors.primary : theme.colors.secondary },
+                              ]}>
+                                {msg.role === 'ai' ? 'AI Triage' : 'Patient'}
+                              </Text>
+                              {showTranslated && translatedTranscript[index] && (
+                                <MaterialCommunityIcons name="translate" size={10} color={theme.colors.onSurfaceVariant} />
+                              )}
+                            </View>
+                            <Text style={styles.transcriptMessage}>{content}</Text>
+                          </View>
+                        );
+                      })
+                    )}
+                    {triageTranscript?.completedAt && (
+                      <Text style={styles.transcriptTimestamp}>
+                        Completed: {new Date(triageTranscript.completedAt).toLocaleString()}
+                      </Text>
                     )}
                   </View>
-                  {consultation.summary && (
-                    <Text style={styles.historySummary}>
-                      {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.summary) ||
-                        consultation.summary}
-                    </Text>
+                )}
+
+                {/* AI Insights sub-tab */}
+                {contextSubtab === 'insights' && (() => {
+                  const displayInsights = showTranslated && translatedInsights ? { ...insights, ...translatedInsights } : insights;
+                  return (
+                    <View>
+                      {languageMismatch && (
+                        <TouchableOpacity
+                          style={[styles.translateToggle, showTranslated && styles.translateToggleActive, { marginBottom: 8 }]}
+                          onPress={() => setShowTranslated(!showTranslated)}
+                        >
+                          <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
+                          <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
+                            {showTranslated ? 'Translated' : 'Translate'}
+                          </Text>
+                          {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
+                        </TouchableOpacity>
+                      )}
+                      {!insights ? (
+                        <Text style={styles.insightText}>No AI insights available for this patient. Triage may not have been completed.</Text>
+                      ) : (
+                        <>
+                          {displayInsights?.summary && (
+                            <View style={styles.insightSection}>
+                              <Text style={styles.insightLabel}>Summary</Text>
+                              <Text style={styles.insightText}>{displayInsights.summary}</Text>
+                            </View>
+                          )}
+                          {displayInsights?.keyFindings && displayInsights.keyFindings.length > 0 && (
+                            <View style={styles.insightSection}>
+                              <Text style={styles.insightLabel}>Key Findings</Text>
+                              {displayInsights.keyFindings.map((finding: string, index: number) => (
+                                <View key={index} style={styles.findingRow}>
+                                  <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.primary} />
+                                  <Text style={styles.findingText}>{finding}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+                          {displayInsights?.possibleConditions && displayInsights.possibleConditions.length > 0 && (
+                            <View style={styles.insightSection}>
+                              <Text style={styles.insightLabel}>Possible Conditions</Text>
+                              {displayInsights.possibleConditions.map((condition: any, index: number) => (
+                                <TouchableOpacity key={index} style={styles.conditionRow} onPress={() => addDiagnostic(condition.name)} activeOpacity={0.7}>
+                                  <Chip
+                                    mode="flat"
+                                    style={[
+                                      styles.confidenceChip,
+                                      {
+                                        backgroundColor:
+                                          condition.confidence === 'High'
+                                            ? `${theme.colors.error}15`
+                                            : condition.confidence === 'Medium'
+                                            ? `${theme.colors.warning}15`
+                                            : `${theme.colors.success}15`,
+                                      },
+                                    ]}
+                                    textStyle={[
+                                      styles.confidenceText,
+                                      {
+                                        color:
+                                          condition.confidence === 'High'
+                                            ? theme.colors.error
+                                            : condition.confidence === 'Medium'
+                                            ? theme.colors.warning
+                                            : theme.colors.success,
+                                      },
+                                    ]}
+                                  >
+                                    {condition.confidence}
+                                  </Chip>
+                                  <View style={styles.conditionInfo}>
+                                    <Text style={styles.conditionName}>{condition.name}</Text>
+                                    <Text style={styles.conditionDesc}>{condition.description}</Text>
+                                  </View>
+                                  <MaterialCommunityIcons name="plus-circle-outline" size={18} color={theme.colors.primary} />
+                                </TouchableOpacity>
+                              ))}
+                              <Text style={styles.tapHint}>Tap a condition to add it as a diagnostic</Text>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </View>
+                  );
+                })()}
+
+                {/* History sub-tab */}
+                {contextSubtab === 'history' && (
+                  <View>
+                    {languageMismatch && (
+                      <TouchableOpacity
+                        style={[styles.translateToggle, showTranslated && styles.translateToggleActive, { marginBottom: 8 }]}
+                        onPress={() => setShowTranslated(!showTranslated)}
+                      >
+                        <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
+                        <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
+                          {showTranslated ? 'Translated' : 'Translate'}
+                        </Text>
+                        {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
+                      </TouchableOpacity>
+                    )}
+                    {historyLoading ? (
+                      <View style={styles.historyLoading}>
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <Text style={styles.insightText}>Loading history...</Text>
+                      </View>
+                    ) : consultationHistoryData.length === 0 ? (
+                      <Text style={styles.insightText}>No previous consultations found for this patient.</Text>
+                    ) : (
+                      consultationHistoryData.map((consultation: any, index: number) => (
+                        <View key={consultation.id || index} style={styles.historyCard}>
+                          <View style={styles.historyCardHeader}>
+                            <MaterialCommunityIcons name="calendar" size={14} color={theme.colors.primary} />
+                            <Text style={styles.historyDate}>
+                              {new Date(consultation.completedAt).toLocaleDateString()}
+                            </Text>
+                            {consultation.doctorName && (
+                              <Text style={styles.historyDoctor}>Dr. {consultation.doctorName}</Text>
+                            )}
+                          </View>
+                          {consultation.summary && (
+                            <Text style={styles.historySummary}>
+                              {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.summary) ||
+                                consultation.summary}
+                            </Text>
+                          )}
+                          {consultation.possibleConditions?.length > 0 && (
+                            <View style={styles.historyConditions}>
+                              {consultation.possibleConditions.slice(0, 3).map((c: any, ci: number) => (
+                                <Chip key={ci} mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
+                                  {c.name}
+                                </Chip>
+                              ))}
+                            </View>
+                          )}
+                          {consultation.doctorNotes && (
+                            <View style={styles.historyNotes}>
+                              <Text style={styles.insightLabel}>Doctor Notes</Text>
+                              <Text style={styles.historyNotesText}>
+                                {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.doctorNotes) ||
+                                  consultation.doctorNotes}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      ))
+                    )}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Notes & Rx Tab — 4-section structured layout (#92) */}
+            {assistTab === 'notes' && (
+              <View style={styles.assistSection}>
+                {/* Header with save indicator */}
+                <View style={styles.notesSectionHeader}>
+                  <MaterialCommunityIcons name="note-edit" size={16} color={theme.colors.primary} />
+                  <Text style={styles.assistCardLabel}>Notes & Rx</Text>
+                  {notesSaved && (
+                    <View style={styles.savedBadge}>
+                      <MaterialCommunityIcons name="check" size={10} color={theme.colors.success} />
+                      <Text style={styles.savedText}>Saved</Text>
+                    </View>
                   )}
-                  {consultation.possibleConditions?.length > 0 && (
-                    <View style={styles.historyConditions}>
-                      {consultation.possibleConditions.slice(0, 3).map((c: any, ci: number) => (
-                        <Chip key={ci} mode="flat" style={styles.historyChip} textStyle={styles.historyChipText}>
-                          {c.name}
-                        </Chip>
+                  <TouchableOpacity
+                    onPress={() => saveNotes(
+                      [doctorNotes, additionalNotes].filter(Boolean).join('\n\n---\n\n')
+                    )}
+                    style={styles.saveNowButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <MaterialCommunityIcons name="content-save" size={14} color={theme.colors.primary} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Section 1: General Notes */}
+                <View style={styles.notesFieldBlock}>
+                  <Text style={styles.notesFieldLabel}>General Notes</Text>
+                  <TextInput
+                    style={styles.notesTextarea}
+                    multiline
+                    placeholder="Chief complaint, key observations, clinical findings..."
+                    placeholderTextColor={theme.colors.onSurfaceVariant}
+                    value={doctorNotes}
+                    onChangeText={setDoctorNotes}
+                    textAlignVertical="top"
+                  />
+                </View>
+
+                {/* Section 2: Diagnosed Cause / Diagnostics */}
+                <View style={styles.notesFieldBlock}>
+                  <Text style={styles.notesFieldLabel}>Diagnosed Cause / Diagnostics</Text>
+                  {diagnostics.length > 0 && (
+                    <View style={styles.diagnosticsList}>
+                      {diagnostics.map((dx, index) => (
+                        <View key={index} style={styles.diagnosticChip}>
+                          <Text style={styles.diagnosticText}>{dx}</Text>
+                          <TouchableOpacity
+                            onPress={() => setDiagnostics((prev) => prev.filter((_, i) => i !== index))}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <MaterialCommunityIcons name="close-circle" size={12} color={theme.colors.onSurfaceVariant} />
+                          </TouchableOpacity>
+                        </View>
                       ))}
                     </View>
                   )}
-                  {consultation.doctorNotes && (
-                    <View style={styles.historyNotes}>
-                      <Text style={styles.insightLabel}>Doctor Notes</Text>
-                      <Text style={styles.historyNotesText}>
-                        {(showTranslated && translatedHistory[String(consultation.id || consultation.completedAt || '')]?.doctorNotes) ||
-                          consultation.doctorNotes}
-                      </Text>
-                    </View>
+                  {diagnostics.length === 0 && (
+                    <Text style={styles.notesEmptyHint}>Use "Use as Dx" in the Dx tab to add diagnoses here.</Text>
                   )}
                 </View>
-              ))
-            )}
-          </ScrollView>
-        </View>
-      )}
 
-      {/* AI Insights Panel (Slide up) */}
-      {showNotes && !insights && (
-        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
-          <View style={[styles.insightsScroll, { padding: spacing.lg }]}>
-            <View style={styles.insightsPanelHeader}>
-              <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
-              <Text style={styles.insightsPanelTitle}>AI Insights</Text>
-              <IconButton
-                icon="close"
-                size={18}
-                onPress={() => setShowNotes(false)}
-                style={styles.closeInsights}
-              />
-            </View>
-            <Text style={styles.insightText}>No AI insights available for this patient. Triage may not have been completed.</Text>
-          </View>
-        </View>
-      )}
-      {showNotes && insights && (() => {
-        const displayInsights = showTranslated && translatedInsights ? { ...insights, ...translatedInsights } : insights;
-        return (
-        <View style={[styles.insightsPanel, isTablet && { maxHeight: 450 }]}>
-          <ScrollView style={styles.insightsScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.insightsPanelHeader}>
-              <MaterialCommunityIcons name="brain" size={20} color={theme.colors.primary} />
-              <Text style={styles.insightsPanelTitle}>AI Insights</Text>
-              {languageMismatch && (
-                <TouchableOpacity
-                  style={[styles.translateToggle, showTranslated && styles.translateToggleActive]}
-                  onPress={() => setShowTranslated(!showTranslated)}
-                >
-                  <MaterialCommunityIcons name="translate" size={14} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />
-                  <Text style={[styles.translateToggleText, showTranslated && { color: '#FFFFFF' }]}>
-                    {showTranslated ? 'Translated' : 'Translate'}
-                  </Text>
-                  {translating && <ActivityIndicator size={10} color={showTranslated ? '#FFFFFF' : theme.colors.primary} />}
-                </TouchableOpacity>
-              )}
-              <IconButton
-                icon="close"
-                size={18}
-                onPress={() => setShowNotes(false)}
-                style={styles.closeInsights}
-              />
-            </View>
+                {/* Section 3: Medication / Prescription Plan */}
+                <View style={styles.notesFieldBlock}>
+                  <Text style={styles.notesFieldLabel}>Medication / Prescription Plan</Text>
+                  {prescriptions.length > 0 ? (
+                    prescriptions.map((rx, index) => (
+                      <View key={index} style={styles.rxListItem}>
+                        <View style={styles.rxListInfo}>
+                          <Text style={styles.rxListName}>{rx.name}</Text>
+                          {rx.dosage && <Text style={styles.rxListDose}>{rx.dosage}</Text>}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => setPrescriptions((prev) => prev.filter((_, i) => i !== index))}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <MaterialCommunityIcons name="close-circle" size={18} color={theme.colors.error} />
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.notesEmptyHint}>Use "Use for Rx" in the Meds tab to add prescriptions here.</Text>
+                  )}
+                </View>
 
-            {displayInsights.summary && (
-              <View style={styles.insightSection}>
-                <Text style={styles.insightLabel}>Summary</Text>
-                <Text style={styles.insightText}>{displayInsights.summary}</Text>
-              </View>
-            )}
+                {/* Section 4: Additional Clinical Note */}
+                <View style={styles.notesFieldBlock}>
+                  <Text style={styles.notesFieldLabel}>Additional Clinical Note</Text>
+                  <TextInput
+                    style={styles.notesTextarea}
+                    multiline
+                    placeholder="Follow-up instructions, red flags, patient instructions..."
+                    placeholderTextColor={theme.colors.onSurfaceVariant}
+                    value={additionalNotes}
+                    onChangeText={setAdditionalNotes}
+                    textAlignVertical="top"
+                  />
+                </View>
 
-            {displayInsights.keyFindings && displayInsights.keyFindings.length > 0 && (
-              <View style={styles.insightSection}>
-                <Text style={styles.insightLabel}>Key Findings</Text>
-                {displayInsights.keyFindings.map((finding: string, index: number) => (
-                  <View key={index} style={styles.findingRow}>
-                    <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.primary} />
-                    <Text style={styles.findingText}>{finding}</Text>
+                <Text style={styles.autoSaveHint}>Auto-saves every 30s</Text>
+
+                {/* Auto-report status banner */}
+                {autoReportStatus !== 'idle' && (
+                  <View style={[styles.aiWarningBanner, {
+                    backgroundColor: autoReportStatus === 'ready'
+                      ? `${theme.colors.success}12`
+                      : autoReportStatus === 'failed'
+                      ? `${theme.colors.error}12`
+                      : `${theme.colors.primary}12`,
+                  }]}>
+                    {autoReportStatus === 'generating' && <ActivityIndicator size={12} color={theme.colors.primary} />}
+                    {autoReportStatus === 'ready' && <MaterialCommunityIcons name="check-circle" size={14} color={theme.colors.success} />}
+                    {autoReportStatus === 'failed' && <MaterialCommunityIcons name="alert-circle" size={14} color={theme.colors.error} />}
+                    <Text style={[styles.aiWarningText, {
+                      color: autoReportStatus === 'ready'
+                        ? theme.colors.success
+                        : autoReportStatus === 'failed'
+                        ? theme.colors.error
+                        : theme.colors.primary,
+                    }]}>
+                      {autoReportStatus === 'generating' && 'Generating consultation report...'}
+                      {autoReportStatus === 'ready' && 'Report ready — tap the report icon to view.'}
+                      {autoReportStatus === 'failed' && 'Auto-report failed. Generate manually using the report icon.'}
+                    </Text>
                   </View>
-                ))}
-              </View>
-            )}
-
-            {displayInsights.possibleConditions && displayInsights.possibleConditions.length > 0 && (
-              <View style={styles.insightSection}>
-                <Text style={styles.insightLabel}>Possible Conditions</Text>
-                {displayInsights.possibleConditions.map((condition: any, index: number) => (
-                  <TouchableOpacity key={index} style={styles.conditionRow} onPress={() => addDiagnostic(condition.name)} activeOpacity={0.7}>
-                    <Chip
-                      mode="flat"
-                      style={[
-                        styles.confidenceChip,
-                        {
-                          backgroundColor:
-                            condition.confidence === 'High'
-                              ? `${theme.colors.error}15`
-                              : condition.confidence === 'Medium'
-                              ? `${theme.colors.warning}15`
-                              : `${theme.colors.success}15`,
-                        },
-                      ]}
-                      textStyle={[
-                        styles.confidenceText,
-                        {
-                          color:
-                            condition.confidence === 'High'
-                              ? theme.colors.error
-                              : condition.confidence === 'Medium'
-                              ? theme.colors.warning
-                              : theme.colors.success,
-                        },
-                      ]}
-                    >
-                      {condition.confidence}
-                    </Chip>
-                    <View style={styles.conditionInfo}>
-                      <Text style={styles.conditionName}>{condition.name}</Text>
-                      <Text style={styles.conditionDesc}>{condition.description}</Text>
-                    </View>
-                    <MaterialCommunityIcons name="plus-circle-outline" size={18} color={theme.colors.primary} />
-                  </TouchableOpacity>
-                ))}
-                <Text style={styles.tapHint}>Tap a condition to add it as a diagnostic</Text>
+                )}
               </View>
             )}
           </ScrollView>
         </View>
-        );
-      })()}
-
-      {/* Notes and Ask AI panels are now integrated into the Live Clinical Assist tabbed pane */}
+      )}
 
       {/* Report Generation Panel */}
       {showReport && (
@@ -2871,5 +3078,104 @@ const styles = StyleSheet.create({
   rxModalButton: {
     marginTop: spacing.lg,
     borderRadius: theme.roundness,
+  },
+  assistTabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#F5F5F5',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  assistTabItem: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  assistTabItemActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.primary,
+  },
+  assistTabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+  },
+  assistTabTextActive: {
+    color: theme.colors.primary,
+  },
+  contextSubTabBar: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  contextSubTabItem: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    backgroundColor: 'transparent',
+  },
+  contextSubTabItemActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  contextSubTabText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.onSurfaceVariant,
+  },
+  contextSubTabTextActive: {
+    color: '#FFFFFF',
+  },
+  rxListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
+  },
+  rxListInfo: {
+    flex: 1,
+  },
+  rxListName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  rxListDose: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+  },
+  safetyFlagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  safetyFlagText: {
+    fontSize: 11,
+    color: theme.colors.error,
+    flex: 1,
+  },
+  // Structured notes sections (#92)
+  notesFieldBlock: {
+    marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  notesFieldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  notesEmptyHint: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
+    paddingVertical: spacing.xs,
   },
 });

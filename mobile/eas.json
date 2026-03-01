@@ -8,10 +8,25 @@
       "developmentClient": true,
       "distribution": "internal"
     },
-    "development-simulator": {
-      "extends": "development",
+    "dev-device": {
+      "extends": "development"
+    },
+    "dev-sim": {
+      "extends": "dev-device",
       "ios": {
         "simulator": true
+      }
+    },
+    "dev-sim-tablet": {
+      "extends": "dev-sim",
+      "env": {
+        "IOS_SIMULATOR_DEVICE": "iPad Pro 13-inch (M5)"
+      }
+    },
+    "dev-sim-ipad-mini": {
+      "extends": "dev-sim",
+      "env": {
+        "IOS_SIMULATOR_DEVICE": "iPad mini (A17 Pro)"
       }
     },
     "preview": {
@@ -19,6 +34,13 @@
     },
     "production": {
       "autoIncrement": true
+    },
+    "preview-device": {
+      "extends": "preview"
+    },
+    "preview-sim": {
+      "extends": "preview-device",
+      "ios": { "simulator": true }
     }
   },
   "submit": {
