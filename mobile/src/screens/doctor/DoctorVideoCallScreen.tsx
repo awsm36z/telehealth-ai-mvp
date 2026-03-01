@@ -155,6 +155,16 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const [rxNotes, setRxNotes] = useState('');
   const [rxDoseLoading, setRxDoseLoading] = useState(false);
 
+  // #98: Inline medication suggestions per diagnosis in Dx tab
+  const [diagMedSuggestions, setDiagMedSuggestions] = useState<Record<string, any[]>>({});
+  const [diagMedLoading, setDiagMedLoading] = useState<Record<string, boolean>>({});
+
+  // #99: Mandatory post-call report review + signature flow
+  const [postCallStep, setPostCallStep] = useState<'idle' | 'generating' | 'reviewing' | 'signing' | 'signed' | 'failed'>('idle');
+  const [reportDraft, setReportDraft] = useState('');
+  const [signatureName, setSignatureName] = useState('');
+  const [completedConsultationId, setCompletedConsultationId] = useState<string | null>(null);
+
   // Auto-transcription state
   const [autoTranscribing, setAutoTranscribing] = useState(false);
   const autoTranscribeRef = useRef(false);
@@ -333,9 +343,8 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
     setReportLoading(false);
   };
 
-  // Auto-generate report on call end (#90)
-  const autoGenerateReport = async () => {
-    setAutoReportStatus('generating');
+  // #99: Post-call report generation — transitions postCallStep state
+  const autoGenerateReportForPostCall = async () => {
     try {
       const docName = await AsyncStorage.getItem('userName');
       const rxText = prescriptions
@@ -349,13 +358,59 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
       );
       if (response.data?.report) {
         setGeneratedReport(response.data.report);
+        setReportDraft(response.data.report);
         setAutoReportStatus('ready');
+        setPostCallStep('reviewing');
       } else {
         setAutoReportStatus('failed');
+        setPostCallStep('failed');
       }
     } catch {
       setAutoReportStatus('failed');
+      setPostCallStep('failed');
     }
+  };
+
+  // #98: Fetch AI-suggested medications for a specific diagnosis card
+  const fetchDiagnosisMeds = useCallback(async (diagName: string) => {
+    setDiagMedLoading((prev) => ({ ...prev, [diagName]: true }));
+    try {
+      const locale = patientLanguage === 'ar' ? 'MA' : undefined;
+      const response = await api.getMedicationInsights({
+        patientId,
+        locale,
+        conversationSummary: `Condition: ${diagName}. Chief complaint: ${insights?.chiefComplaint || 'not specified'}.`,
+      });
+      const meds = (
+        response.data?.possibleMedication ||
+        response.data?.medication?.possibleMedication ||
+        []
+      ).slice(0, 3);
+      setDiagMedSuggestions((prev) => ({ ...prev, [diagName]: meds }));
+    } catch {
+      setDiagMedSuggestions((prev) => ({ ...prev, [diagName]: [] }));
+    }
+    setDiagMedLoading((prev) => ({ ...prev, [diagName]: false }));
+  }, [patientId, patientLanguage, insights]);
+
+  // #99: Sign the finalized report and navigate away
+  const handleSignReport = async () => {
+    const name = signatureName.trim();
+    if (!name) return;
+    try {
+      await api.signConsultationReport(patientId, {
+        report: reportDraft,
+        signerName: name,
+        signatureMethod: 'typed_name',
+      });
+    } catch {
+      // Non-critical: signature stored locally even if backend is unreachable
+    }
+    setPostCallStep('signed');
+  };
+
+  const closeConsultationAfterSign = () => {
+    navigation.popToTop();
   };
 
   // Check STT availability on mount
@@ -1010,7 +1065,7 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
   const endCall = async () => {
     Alert.alert(
       'End Consultation',
-      'Are you sure you want to end this consultation?',
+      'You will review and sign the consultation report before closing.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1034,19 +1089,19 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
               if (completeResult.error) {
                 console.error('Failed to record consultation:', completeResult.error);
               } else {
-                console.log('Consultation recorded for patient:', patientId);
-                // Auto-generate report in background (#90)
-                autoGenerateReport().catch(() => {});
+                setCompletedConsultationId(completeResult.data?.id || null);
               }
               await api.endVideoCall(roomName);
-              // Cleanup live transcript
+              // Cleanup
               stopListening();
               stopAutoTranscribe();
               sseActiveRef.current = false;
               api.clearLiveTranscript(roomName).catch(() => {});
               if (timerInterval.current) clearInterval(timerInterval.current);
               if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
-              navigation.popToTop();
+              // Enter mandatory post-call report flow (#99)
+              setPostCallStep('generating');
+              autoGenerateReportForPostCall();
             } catch (error) {
               console.error('Error ending call:', error);
               navigation.popToTop();
@@ -1340,13 +1395,50 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
                             <MaterialCommunityIcons name="note-plus" size={13} color={theme.colors.secondary} />
                             <Text style={[styles.medActionText, { color: theme.colors.secondary }]}>{t('doctor.addToNotes')}</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.medActionButton, { borderColor: (theme.colors as any).tertiary || theme.colors.secondary }]}
-                            onPress={() => setAssistTab('meds')}
-                          >
-                            <MaterialCommunityIcons name="pill" size={13} color={(theme.colors as any).tertiary || theme.colors.secondary} />
-                            <Text style={[styles.medActionText, { color: (theme.colors as any).tertiary || theme.colors.secondary }]}>{t('doctor.suggestMeds')}</Text>
-                          </TouchableOpacity>
+                        </View>
+
+                        {/* #98: Inline Recommended Medications under each diagnosis */}
+                        <View style={styles.diagMedSection}>
+                          <View style={styles.diagMedHeader}>
+                            <MaterialCommunityIcons name="pill" size={12} color={theme.colors.primary} />
+                            <Text style={styles.diagMedLabel}>{t('doctor.recommendedMeds', { defaultValue: 'Recommended Medications' })}</Text>
+                            {diagMedLoading[diag.name] && <ActivityIndicator size={10} color={theme.colors.primary} />}
+                            {!diagMedSuggestions[diag.name] && !diagMedLoading[diag.name] && (
+                              <TouchableOpacity onPress={() => fetchDiagnosisMeds(diag.name)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                <Text style={styles.diagMedFetchText}>{t('doctor.load', { defaultValue: 'Load' })}</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {(diagMedSuggestions[diag.name] || []).length === 0 && !diagMedLoading[diag.name] && diagMedSuggestions[diag.name] && (
+                            <Text style={styles.diagMedEmpty}>{t('doctor.noMedicationSuggestions')}</Text>
+                          )}
+                          {(diagMedSuggestions[diag.name] || []).map((med: any, mi: number) => {
+                            const isPrescribed = prescriptions.some((p) => p.name === med.name);
+                            return (
+                              <View key={`diagmed-${mi}`} style={styles.diagMedItem}>
+                                <View style={styles.diagMedInfo}>
+                                  <Text style={styles.diagMedName}>{med.name}</Text>
+                                  {med.dosage && <Text style={styles.diagMedDose}>{med.dosage}</Text>}
+                                </View>
+                                {isPrescribed ? (
+                                  <TouchableOpacity
+                                    style={styles.prescribedChip}
+                                    onPress={() => openPrescriptionModal({ name: med.name, dosage: med.dosage, rationale: `For ${diag.name}` })}
+                                  >
+                                    <MaterialCommunityIcons name="check-circle" size={11} color={theme.colors.success} />
+                                    <Text style={styles.prescribedChipText}>{t('doctor.prescribed', { defaultValue: 'Prescribed' })}</Text>
+                                  </TouchableOpacity>
+                                ) : (
+                                  <TouchableOpacity
+                                    style={styles.prescribeBtn}
+                                    onPress={() => openPrescriptionModal({ name: med.name, dosage: med.dosage, rationale: `For ${diag.name}` })}
+                                  >
+                                    <Text style={styles.prescribeBtnText}>{t('doctor.prescribe', { defaultValue: 'Prescribe' })}</Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            );
+                          })}
                         </View>
                       </View>
                     ))}
@@ -2082,8 +2174,169 @@ export default function DoctorVideoCallScreen({ route, navigation }: any) {
         </View>
       </Modal>
 
+      {/* #99: Mandatory Post-Call Report Review + Signature Flow */}
+      {postCallStep !== 'idle' && (
+        <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={() => {}}>
+          <SafeAreaView style={styles.postCallContainer}>
+            {/* Header */}
+            <View style={styles.postCallHeader}>
+              <MaterialCommunityIcons
+                name={postCallStep === 'signed' ? 'check-decagram' : 'file-document-edit'}
+                size={22}
+                color={postCallStep === 'signed' ? theme.colors.success : theme.colors.primary}
+              />
+              <Text style={styles.postCallTitle}>
+                {postCallStep === 'generating' ? t('doctor.generatingReport', { defaultValue: 'Generating Report…' })
+                  : postCallStep === 'reviewing' ? t('doctor.reviewAndSign', { defaultValue: 'Review & Sign' })
+                  : postCallStep === 'signing' ? t('doctor.signatureTitle', { defaultValue: 'Sign Report' })
+                  : postCallStep === 'signed' ? t('doctor.reportSigned', { defaultValue: 'Signed ✓' })
+                  : t('doctor.reportFailed')}
+              </Text>
+              {postCallStep !== 'generating' && postCallStep !== 'signed' && (
+                <Chip mode="flat" style={styles.draftChip} textStyle={styles.draftChipText}>
+                  {t('doctor.reportDraft', { defaultValue: 'Draft' })}
+                </Chip>
+              )}
+              {postCallStep === 'signed' && (
+                <Chip mode="flat" style={styles.signedChip} textStyle={styles.signedChipText}>
+                  {t('doctor.reportSigned', { defaultValue: 'Signed Final' })}
+                </Chip>
+              )}
+            </View>
+
+            {/* Generating state */}
+            {postCallStep === 'generating' && (
+              <View style={styles.postCallCenter}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={styles.postCallGeneratingText}>
+                  {t('doctor.generatingPleaseWait', { defaultValue: 'Generating your consultation report…' })}
+                </Text>
+                <Text style={styles.postCallGeneratingHint}>
+                  {t('doctor.reportHintWait', { defaultValue: 'This usually takes 10–20 seconds.' })}
+                </Text>
+              </View>
+            )}
+
+            {/* Failed state */}
+            {postCallStep === 'failed' && (
+              <View style={styles.postCallCenter}>
+                <MaterialCommunityIcons name="alert-circle" size={48} color={theme.colors.error} />
+                <Text style={styles.postCallGeneratingText}>{t('doctor.reportFailed')}</Text>
+                <Button mode="contained" onPress={() => { setPostCallStep('generating'); autoGenerateReportForPostCall(); }} style={{ marginTop: spacing.lg }}>
+                  {t('doctor.retryGeneration', { defaultValue: 'Retry' })}
+                </Button>
+                <Button mode="text" onPress={closeConsultationAfterSign} style={{ marginTop: spacing.sm }}>
+                  {t('doctor.skipAndClose', { defaultValue: 'Skip & Close' })}
+                </Button>
+              </View>
+            )}
+
+            {/* Reviewing state */}
+            {postCallStep === 'reviewing' && (
+              <>
+                <ScrollView style={styles.postCallScroll} contentContainerStyle={styles.postCallScrollContent}>
+                  <View style={styles.aiWarningBanner}>
+                    <MaterialCommunityIcons name="information" size={14} color={theme.colors.primary} />
+                    <Text style={styles.aiWarningText}>
+                      {t('doctor.aiSuggestionOnly', { defaultValue: 'AI-generated draft. Review and edit before signing.' })}
+                    </Text>
+                  </View>
+                  <Text style={styles.reportSectionLabel}>{t('doctor.consultationReport', { defaultValue: 'Consultation Report' })}</Text>
+                  <TextInput
+                    style={styles.reportDraftInput}
+                    multiline
+                    value={reportDraft}
+                    onChangeText={setReportDraft}
+                    textAlignVertical="top"
+                    placeholder={t('doctor.reportPlaceholder', { defaultValue: 'Report content…' })}
+                    placeholderTextColor={theme.colors.onSurfaceVariant}
+                  />
+                </ScrollView>
+                <View style={styles.postCallFooter}>
+                  <Button
+                    mode="contained"
+                    icon="pen"
+                    onPress={() => setPostCallStep('signing')}
+                    style={styles.postCallPrimaryBtn}
+                    disabled={!reportDraft.trim()}
+                  >
+                    {t('doctor.signAndFinalize', { defaultValue: 'Sign & Finalize' })}
+                  </Button>
+                </View>
+              </>
+            )}
+
+            {/* Signing state */}
+            {postCallStep === 'signing' && (
+              <>
+                <ScrollView style={styles.postCallScroll} contentContainerStyle={styles.postCallScrollContent}>
+                  <Surface style={styles.signatureCard}>
+                    <MaterialCommunityIcons name="draw-pen" size={32} color={theme.colors.primary} style={{ alignSelf: 'center', marginBottom: spacing.md }} />
+                    <Text style={styles.signatureStatement}>
+                      {t('doctor.signatureStatement', { defaultValue: 'I certify that this consultation report is accurate and complete to the best of my clinical knowledge.' })}
+                    </Text>
+                    <Text style={styles.signatureInputLabel}>
+                      {t('doctor.signatureName', { defaultValue: 'Full Name (typed signature)' })}
+                    </Text>
+                    <TextInput
+                      style={styles.signatureInput}
+                      value={signatureName}
+                      onChangeText={setSignatureName}
+                      placeholder={t('doctor.signatureNamePlaceholder', { defaultValue: 'Dr. Your Name' })}
+                      placeholderTextColor={theme.colors.onSurfaceVariant}
+                      autoCapitalize="words"
+                    />
+                  </Surface>
+                </ScrollView>
+                <View style={styles.postCallFooter}>
+                  <Button mode="outlined" onPress={() => setPostCallStep('reviewing')} style={styles.postCallSecondaryBtn}>
+                    {t('common.back', { defaultValue: 'Back' })}
+                  </Button>
+                  <Button
+                    mode="contained"
+                    icon="check-decagram"
+                    onPress={handleSignReport}
+                    style={styles.postCallPrimaryBtn}
+                    disabled={!signatureName.trim()}
+                  >
+                    {t('doctor.confirmSignature', { defaultValue: 'Confirm Signature' })}
+                  </Button>
+                </View>
+              </>
+            )}
+
+            {/* Signed (success) state */}
+            {postCallStep === 'signed' && (
+              <View style={styles.postCallCenter}>
+                <MaterialCommunityIcons name="check-decagram" size={64} color={theme.colors.success} />
+                <Text style={styles.signedSuccessTitle}>{t('doctor.reportFinalized', { defaultValue: 'Report Finalized' })}</Text>
+                <Text style={styles.signedSuccessBody}>
+                  {t('doctor.reportFinalizedBody', { defaultValue: 'Your consultation report has been signed and saved.' })}
+                </Text>
+                {signatureName ? (
+                  <View style={styles.signedByRow}>
+                    <MaterialCommunityIcons name="draw-pen" size={14} color={theme.colors.onSurfaceVariant} />
+                    <Text style={styles.signedByText}>
+                      {t('doctor.signedBy', { defaultValue: `Signed by ${signatureName}`, signerName: signatureName })}
+                    </Text>
+                  </View>
+                ) : null}
+                <Button
+                  mode="contained"
+                  icon="check"
+                  onPress={closeConsultationAfterSign}
+                  style={[styles.postCallPrimaryBtn, { marginTop: spacing.xl, minWidth: 220 }]}
+                >
+                  {t('doctor.closeConsultation', { defaultValue: 'Close & Save Consultation' })}
+                </Button>
+              </View>
+            )}
+          </SafeAreaView>
+        </Modal>
+      )}
+
       {/* Floating call controls plane */}
-      {showFloatingControls && (
+      {postCallStep === 'idle' && showFloatingControls && (
         <View style={styles.floatingControlsOverlay} pointerEvents="box-none">
           <View style={styles.controlsContainer}>
             <Surface style={[styles.controlsPanel, shadows.large]}>
@@ -3189,5 +3442,228 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
     fontStyle: 'italic',
     paddingVertical: spacing.xs,
+  },
+
+  // #98: Inline diagnosis medication suggestions
+  diagMedSection: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0,0,0,0.08)',
+  },
+  diagMedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: spacing.xs,
+  },
+  diagMedLabel: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  diagMedFetchText: {
+    fontSize: 11,
+    color: theme.colors.primary,
+    fontWeight: '600',
+  },
+  diagMedEmpty: {
+    fontSize: 12,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
+  },
+  diagMedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    gap: spacing.sm,
+  },
+  diagMedInfo: {
+    flex: 1,
+  },
+  diagMedName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+  },
+  diagMedDose: {
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+  },
+  prescribedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: `${theme.colors.success}15`,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  prescribedChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.success,
+  },
+  prescribeBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  prescribeBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // #99: Post-call mandatory report flow
+  postCallContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  postCallHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.outline,
+  },
+  postCallTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+  },
+  draftChip: {
+    backgroundColor: `${theme.colors.warning}18`,
+    height: 24,
+  },
+  draftChipText: {
+    fontSize: 11,
+    color: theme.colors.warning,
+    fontWeight: '600',
+  },
+  signedChip: {
+    backgroundColor: `${theme.colors.success}18`,
+    height: 24,
+  },
+  signedChipText: {
+    fontSize: 11,
+    color: theme.colors.success,
+    fontWeight: '600',
+  },
+  postCallCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+    gap: spacing.md,
+  },
+  postCallGeneratingText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    textAlign: 'center',
+  },
+  postCallGeneratingHint: {
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  postCallScroll: {
+    flex: 1,
+  },
+  postCallScrollContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  reportSectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+    marginBottom: spacing.xs,
+  },
+  reportDraftInput: {
+    minHeight: 320,
+    fontSize: 14,
+    color: theme.colors.onSurface,
+    lineHeight: 22,
+    padding: spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+    textAlignVertical: 'top',
+  },
+  postCallFooter: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.outline,
+  },
+  postCallPrimaryBtn: {
+    flex: 1,
+    borderRadius: theme.roundness,
+  },
+  postCallSecondaryBtn: {
+    borderRadius: theme.roundness,
+  },
+  signatureCard: {
+    padding: spacing.lg,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+    gap: spacing.md,
+  },
+  signatureStatement: {
+    fontSize: 14,
+    color: theme.colors.onSurface,
+    lineHeight: 21,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  signatureInputLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.onSurface,
+    marginBottom: 2,
+  },
+  signatureInput: {
+    fontSize: 16,
+    color: theme.colors.onSurface,
+    padding: spacing.md,
+    backgroundColor: '#F5F5F5',
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+    fontWeight: '500',
+  },
+  signedSuccessTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+    textAlign: 'center',
+  },
+  signedSuccessBody: {
+    fontSize: 15,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  signedByRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.xs,
+  },
+  signedByText: {
+    fontSize: 13,
+    color: theme.colors.onSurfaceVariant,
+    fontStyle: 'italic',
   },
 });

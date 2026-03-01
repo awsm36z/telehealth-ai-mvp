@@ -622,6 +622,43 @@ const api = {
     }
   },
 
+  // Update the report draft for the latest consultation (#99)
+  updateConsultationReport: async (patientId: string, report: string) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/consultations/${encodeURIComponent(patientId)}/report`, {
+        method: 'PATCH',
+        body: JSON.stringify({ report }),
+      }, 15000, true);
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to update report' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      return { data: null, error: error.message || 'Failed to update report' };
+    }
+  },
+
+  // Sign and finalize the consultation report (#99)
+  signConsultationReport: async (
+    patientId: string,
+    payload: { report?: string; signerName: string; signatureMethod?: string }
+  ) => {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/consultations/${encodeURIComponent(patientId)}/report/sign`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, 15000, true);
+      const data = await response.json();
+      if (!response.ok) {
+        return { data: null, error: data.message || 'Failed to sign report' };
+      }
+      return { data, error: null };
+    } catch (error: any) {
+      return { data: null, error: error.message || 'Failed to sign report' };
+    }
+  },
+
   getMessageThread: async (patientId: string) => {
     try {
       const response = await fetchWithTimeout(`${API_URL}/messages/${encodeURIComponent(patientId)}`, {

@@ -143,6 +143,86 @@ router.get('/all', async (req: Request, res: Response) => {
 });
 
 /**
+ * PATCH /api/consultations/:patientId/report
+ * Update the report text on the latest consultation (editable until signed, #99)
+ */
+router.patch('/:patientId/report', async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    const { report } = req.body;
+
+    if (!report || typeof report !== 'string') {
+      return res.status(400).json({ message: 'Report text is required' });
+    }
+
+    const history = consultationHistory[patientId];
+    if (!history || history.length === 0) {
+      return res.status(404).json({ message: 'No consultation found for this patient' });
+    }
+
+    const latest = history[history.length - 1];
+    if (latest.reportStatus === 'signed_final') {
+      return res.status(409).json({ message: 'Report is signed and immutable — create an addendum instead' });
+    }
+
+    latest.report = report;
+    latest.reportStatus = 'draft_ready';
+    latest.reportUpdatedAt = new Date().toISOString();
+
+    res.json({ message: 'Report updated', data: latest });
+  } catch (error: any) {
+    console.error('Update report error:', error);
+    res.status(500).json({ message: 'Failed to update report', error: error.message });
+  }
+});
+
+/**
+ * POST /api/consultations/:patientId/report/sign
+ * Sign and finalize the consultation report (#99)
+ * After signing the report is immutable.
+ */
+router.post('/:patientId/report/sign', async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    const { report, signerName, signatureMethod } = req.body;
+
+    if (!signerName || typeof signerName !== 'string' || !signerName.trim()) {
+      return res.status(400).json({ message: 'Signer name is required' });
+    }
+
+    const history = consultationHistory[patientId];
+    if (!history || history.length === 0) {
+      return res.status(404).json({ message: 'No consultation found for this patient' });
+    }
+
+    const latest = history[history.length - 1];
+    if (latest.reportStatus === 'signed_final') {
+      return res.status(409).json({ message: 'Report is already signed' });
+    }
+
+    // Store the final (possibly edited) report content
+    if (report && typeof report === 'string') {
+      latest.report = report;
+    }
+
+    const signedAt = new Date().toISOString();
+    latest.reportStatus = 'signed_final';
+    latest.signedAt = signedAt;
+    latest.signature = {
+      signerName: signerName.trim(),
+      signedAt,
+      signatureMethod: signatureMethod || 'typed_name',
+    };
+
+    console.log(`✍️  Consultation ${latest.id} signed by ${signerName.trim()}`);
+    res.json({ message: 'Report signed and finalized', data: latest });
+  } catch (error: any) {
+    console.error('Sign report error:', error);
+    res.status(500).json({ message: 'Failed to sign report', error: error.message });
+  }
+});
+
+/**
  * GET /api/consultations/:patientId/history
  * Get consultation history for a patient
  */

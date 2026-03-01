@@ -17,8 +17,20 @@ export type Consultation = {
   notes: string;
   possibleConditions: string[];
   nextSteps: string[];
-  reportStatus?: 'generating' | 'ready' | 'failed';
+  reportStatus?: 'draft_generating' | 'draft_ready' | 'signed_final' | 'generating' | 'ready' | 'failed';
   report?: string;
+  signedAt?: string;
+  signature?: {
+    signerName: string;
+    signedAt: string;
+    signatureMethod: string;
+  };
+};
+
+export type SignatureMetadata = {
+  signerName: string;
+  signedAt: string;
+  signatureMethod: string;
 };
 
 /**
@@ -67,6 +79,8 @@ export function normalizeConsultation(raw: any, index: number): Consultation {
     nextSteps: toStringArray(raw?.nextSteps),
     reportStatus: raw?.reportStatus,
     report: typeof raw?.report === 'string' ? raw.report : '',
+    signedAt: typeof raw?.signedAt === 'string' ? raw.signedAt : undefined,
+    signature: raw?.signature && typeof raw.signature === 'object' ? raw.signature : undefined,
   };
 }
 
@@ -123,4 +137,28 @@ export function resolveStopTranscript(
   stateValue: string,
 ): string {
   return accumulated || transient || stateValue;
+}
+
+/**
+ * Build signature metadata for a signed consultation report (#99).
+ * The signerName is the doctor's full name as typed.
+ */
+export function buildSignatureMetadata(
+  signerName: string,
+  signatureMethod: 'typed_name' = 'typed_name',
+): SignatureMetadata {
+  return {
+    signerName: signerName.trim(),
+    signedAt: new Date().toISOString(),
+    signatureMethod,
+  };
+}
+
+/**
+ * Returns true when a signed report cannot be edited directly.
+ */
+export function isReportImmutable(
+  reportStatus?: string,
+): boolean {
+  return reportStatus === 'signed_final';
 }

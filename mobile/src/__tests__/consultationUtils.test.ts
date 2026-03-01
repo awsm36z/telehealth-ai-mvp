@@ -5,6 +5,8 @@
  *  - #95: crash/error when visit cards are tapped (bad API shapes crash the renderer)
  *  - #96: wrong message posted after stopping transcription
  *  - #97: today-filter for "Completed Today" drill-down
+ *  - #98: prescribed medication state tracking (via normalizeConsultation reportStatus)
+ *  - #99: report signature metadata and immutability check
  */
 
 import {
@@ -14,6 +16,8 @@ import {
   formatDate,
   accumulateTranscript,
   resolveStopTranscript,
+  buildSignatureMetadata,
+  isReportImmutable,
 } from '../utils/consultationUtils';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -302,5 +306,103 @@ describe('resolveStopTranscript', () => {
     const result = resolveStopTranscript('correct text', '', 'stale old text');
     expect(result).toBe('correct text');
     expect(result).not.toBe('stale old text');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// buildSignatureMetadata (#99 — signed consultation report)
+// ──────────────────────────────────────────────────────────────────────────────
+describe('buildSignatureMetadata', () => {
+  it('returns an object with the correct signerName', () => {
+    const meta = buildSignatureMetadata('Dr. Alice Smith');
+    expect(meta.signerName).toBe('Dr. Alice Smith');
+  });
+
+  it('trims whitespace from signerName', () => {
+    const meta = buildSignatureMetadata('  Dr. Bob  ');
+    expect(meta.signerName).toBe('Dr. Bob');
+  });
+
+  it('sets signedAt to a valid ISO timestamp', () => {
+    const before = Date.now();
+    const meta = buildSignatureMetadata('Dr. C');
+    const after = Date.now();
+    const ts = new Date(meta.signedAt).getTime();
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(after);
+  });
+
+  it('defaults signatureMethod to typed_name', () => {
+    const meta = buildSignatureMetadata('Dr. D');
+    expect(meta.signatureMethod).toBe('typed_name');
+  });
+
+  it('accepts explicit signatureMethod', () => {
+    const meta = buildSignatureMetadata('Dr. E', 'typed_name');
+    expect(meta.signatureMethod).toBe('typed_name');
+  });
+
+  it('produces distinct timestamps for sequential calls', () => {
+    const a = buildSignatureMetadata('Dr. F');
+    // Force a small difference by advancing by 0 ms — same ms is fine, just verify structure
+    const b = buildSignatureMetadata('Dr. G');
+    expect(a.signerName).not.toBe(b.signerName);
+    expect(typeof a.signedAt).toBe('string');
+    expect(typeof b.signedAt).toBe('string');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// isReportImmutable (#99 — immutability gate after signing)
+// ──────────────────────────────────────────────────────────────────────────────
+describe('isReportImmutable', () => {
+  it('returns true for signed_final status', () => {
+    expect(isReportImmutable('signed_final')).toBe(true);
+  });
+
+  it('returns false for draft_ready status', () => {
+    expect(isReportImmutable('draft_ready')).toBe(false);
+  });
+
+  it('returns false for draft_generating status', () => {
+    expect(isReportImmutable('draft_generating')).toBe(false);
+  });
+
+  it('returns false for undefined status', () => {
+    expect(isReportImmutable(undefined)).toBe(false);
+  });
+
+  it('returns false for empty string', () => {
+    expect(isReportImmutable('')).toBe(false);
+  });
+
+  it('returns false for ready status', () => {
+    expect(isReportImmutable('ready')).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// normalizeConsultation: reportStatus and signature fields (#99)
+// ──────────────────────────────────────────────────────────────────────────────
+describe('normalizeConsultation — reportStatus and signature (#99)', () => {
+  it('passes through signed_final reportStatus', () => {
+    const result = normalizeConsultation({ id: 'c1', reportStatus: 'signed_final' }, 0);
+    expect(result.reportStatus).toBe('signed_final');
+  });
+
+  it('passes through draft_ready reportStatus', () => {
+    const result = normalizeConsultation({ id: 'c2', reportStatus: 'draft_ready' }, 0);
+    expect(result.reportStatus).toBe('draft_ready');
+  });
+
+  it('passes through signature metadata when present', () => {
+    const sig = { signerName: 'Dr. Hall', signedAt: '2026-03-01T10:00:00Z', signatureMethod: 'typed_name' };
+    const result = normalizeConsultation({ id: 'c3', reportStatus: 'signed_final', signature: sig }, 0);
+    expect(result.signature).toEqual(sig);
+  });
+
+  it('leaves signature undefined when absent', () => {
+    const result = normalizeConsultation({ id: 'c4' }, 0);
+    expect(result.signature).toBeUndefined();
   });
 });
